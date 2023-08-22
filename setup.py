@@ -25,10 +25,9 @@ setuptools.setup(
     description="SSAM",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/eilslabs/ssam",
+    url="https://github.com/HiDiHlabs/ssam",
     packages=setuptools.find_packages(),
     classifiers=[
-        "Programming Language :: Python :: 2",
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
         "Operating System :: POSIX",
@@ -54,5 +53,6 @@ setuptools.setup(
         "zarr",
         "hdbscan",
         "torch",
+        "packaging",
     ]
 )

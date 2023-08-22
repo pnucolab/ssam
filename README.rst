@@ -15,25 +15,22 @@ Please also check our example Jupyter notebooks here: https://github.com/eilslab
 Prerequisites
 =============
 
-Currently SSAM was only tested with Python 3 in Linux environment. In addition to this package, SSAM requires a local R installation with pre-installed packages ``feather`` and ``sctransform``.
+Currently SSAM was only tested with Python 3 in Linux environment. In addition to this package, SSAM requires a local R installation with pre-installed packages ``feather`` and ``sctransform``. For details, please follow the instructions here: https://ssam.readthedocs.io/en/release/userguide/01-tldr.html#installation
 
 Install
 =======
 
-.. code-block:: bash
-
-   $ pip install ssam
-
+https://ssam.readthedocs.io/en/release/userguide/01-tldr.html#installation
 
 Documentation
 =============
 
-https://ssam.readthedocs.io/en/latest/
+https://ssam.readthedocs.io/
 
 Citations
 =========
 
-J Park, W Choi, S Tiesmeyer, B Long, LE Borm, E Garren, TN Nguyen, S Codeluppi, M Schlesner, B Tasic, R Eils, N Ishaque. "Segmentation-free inference of cell types from in situ transcriptomics data." *bioRxiv* **800748**. doi: https://doi.org/10.1101/800748
+Jeongbin Park, Wonyl Choi, Sebastian Tiesmeyer, Brian Long, Lars E. Borm, Emma Garren, Thuc Nghi Nguyen, Bosiljka Tasic, Simone Codeluppi, Tobias Graf, Matthias Schlesner, Oliver Stegle, Roland Eils & Naveed Ishaque. "`Cell segmentation-free inference of cell types from in situ transcriptomics data. <https://www.nature.com/articles/s41467-021-23807-4>`_" *Nature Communications* **12**, 3545 (2021). 
 
 License
 =======
