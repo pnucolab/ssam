@@ -213,7 +213,7 @@ class SSAMAnalysis(object):
             self.dataset.vf_normalized = da.from_zarr(self.dataset.zarr_group['vf_normalized'])
             self.dataset.normalized_vectors = self.dataset.zarr_group['normalized_vectors'][:]
 
-        if 'vf_scaled' in self.dataset.zarr_group:
+        if 'vf_scaled' in self.dataset.zarr_group and 'scaled_vectors' in self.dataset.zarr_group:
             self.dataset.vf_scaled = da.from_zarr(self.dataset.zarr_group['vf_scaled'])
             self.dataset.scaled_vectors = self.dataset.zarr_group['scaled_vectors'][:]
         
