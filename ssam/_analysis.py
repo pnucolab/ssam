@@ -449,18 +449,21 @@ class SSAMAnalysis(object):
         :type search_size: int
         """
 
-        max_mask = (self.dataset.vf_norm == ndimage.maximum_filter(self.dataset.vf_norm, size=search_size)).compute()
+        self._m("Finding local maxima...")
+        max_mask = self.dataset.vf_norm == ndimage.maximum_filter(self.dataset.vf_norm, size=search_size)
+        self._m("Filtering local maxima based on norm threshold...")
         max_mask &= self.dataset.vf_norm > self.dataset.norm_threshold
-        if self.dataset.expression_threshold > 0:
-            exp_mask = da.zeros_like(max_mask)
-            for i in range(len(self.dataset.genes)):
-                exp_mask |= self.dataset.vf[..., i] > self.dataset.expression_threshold
-            max_mask &= exp_mask
         if mask is not None:
+            self._m("Filtering local maxima based on the given mask...")
             max_mask &= mask
-        local_maxs = np.where(max_mask)
+        local_maxs = np.where(max_mask.compute())
+        if self.dataset.expression_threshold > 0:
+            self._m("Filtering local maxima based on gene expression threshold...")
+            self.dataset.local_maxs = local_maxs
+            vector_mask = self.dataset.selected_vectors > self.dataset.expression_threshold
+            local_maxs = tuple(np.array(self.dataset.local_maxs).T[np.any(vector_mask, axis=1)].T)
         self._m("Found %d local max vectors."%len(local_maxs[0]))
-        self.dataset.local_maxs = local_maxs        
+        self.dataset.local_maxs = local_maxs
         self.dataset.zarr_group['local_maxs'] = np.array(local_maxs)
         return
     
