@@ -449,7 +449,7 @@ class SSAMAnalysis(object):
         :type search_size: int
         """
 
-        max_mask = self.dataset.vf_norm == ndimage.maximum_filter(self.dataset.vf_norm, size=search_size)
+        max_mask = (self.dataset.vf_norm == ndimage.maximum_filter(self.dataset.vf_norm, size=search_size)).compute()
         max_mask &= self.dataset.vf_norm > self.dataset.norm_threshold
         if self.dataset.expression_threshold > 0:
             exp_mask = da.zeros_like(max_mask)
@@ -458,7 +458,7 @@ class SSAMAnalysis(object):
             max_mask &= exp_mask
         if mask is not None:
             max_mask &= mask
-        local_maxs = np.where(max_mask.compute())
+        local_maxs = np.where(max_mask)
         self._m("Found %d local max vectors."%len(local_maxs[0]))
         self.dataset.local_maxs = local_maxs        
         self.dataset.zarr_group['local_maxs'] = np.array(local_maxs)
