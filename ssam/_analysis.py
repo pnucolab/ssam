@@ -578,10 +578,10 @@ class SSAMAnalysis(object):
             vecs = flat_vf[i*chunk_size:(i+1)*chunk_size].compute()
             nonzero_mask = np.sum(vecs, axis=1) > 0
             vecs_nonzero = vecs[nonzero_mask]
-            res = np.zeros_like(vecs)
-            res[nonzero_mask] = _normalize(vecs_nonzero)
-            vf_normalized[i*chunk_size:(i+1)*chunk_size] = res
-            
+            if vecs_nonzero.shape[0] != 0:
+                res = np.zeros_like(vecs)
+                res[nonzero_mask] = _normalize(vecs_nonzero)
+                vf_normalized[i*chunk_size:(i+1)*chunk_size] = res
         self.dataset.normalized_vectors = np.array(norm_vec)
         self.dataset.zarr_group['normalized_vectors'] = self.dataset.normalized_vectors
         self.dataset._try_flush()
