@@ -2,20 +2,12 @@
 SSAM (Spot-based Spatial cell-type Analysis by Multidimensional mRNA density estimation)
 ========================================================================================
 
-Author: Jeongbin Park (j.park@dkfz-heidelberg.de)\ :sup:`1,2` and Wonyl Choi (wonyl@bu.edu)\ :sup:`3`
-
-:sup:`1`\ Digital Health Center, Berlin Institute of Health (BIH) and Charité – Universitätsmedizin, Berlin, Germany; :sup:`2`\ Faculty of Biosciences, Heidelberg University, Heidelberg, Germany; :sup:`3`\ Department of Computer Science, Boston University, Boston, the United States of America
-
-(Not referring this :laughing:: https://en.wikipedia.org/wiki/Ssam)
-
-This project was done under supervision of Dr. Naveed Ishaque (naveed.ishaque@charite.de) and Prof. Roland Eils (roland.eils@charite.de), and in collaboration with the SpaceTx consortium and the Human Cell Atlas project.
-
-Please also check our example Jupyter notebooks here: https://github.com/eilslabs/ssam_example
+This repository contains the ongoing development of SSAM, including bug fixes, maintained by the Computational Omics Laboratory at Pusan National University. For the published version in 2021, please refer to https://github.com/HiDiHlabs/ssam.
 
 Prerequisites
 =============
 
-Currently SSAM was only tested with Python 3 in Linux environment. In addition to this package, SSAM requires a local R installation with pre-installed packages ``feather`` and ``sctransform``. For details, please follow the instructions here: https://ssam.readthedocs.io/en/release/userguide/01-tldr.html#installation
+Currently SSAM was only tested with Python 3 in Linux environment. For details, please follow the instructions here: https://ssam.readthedocs.io/en/release/userguide/01-tldr.html#installation
 
 Install
 =======
