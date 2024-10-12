@@ -5,27 +5,22 @@ try:
 except ImportError:
     print("Please install Numpy first. e.g. pip install numpy")
     exit(1)
-try:
-    import torch
-except ImportError:
-    print("Please install Pytorch first. Instructions: https://pytorch.org/get-started/locally/")
-    exit(1)
 from glob import glob
 
-module_utils = setuptools.extension.Extension('ssam.utils', sources=["c/utils.cpp"], extra_compile_args=["-fopenmp"], extra_link_args=["-fopenmp"], include_dirs=[np.get_include()])
+module_utils = setuptools.extension.Extension('ssam.utils', sources=["c/utils.cpp"], extra_compile_args=["-fopenmp", "-mavx512f"], extra_link_args=["-fopenmp", "-mavx512f"], include_dirs=[np.get_include()])
 
 with io.open("README.rst", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 setuptools.setup(
     name="ssam",
-    version="1.1.0",
+    version="1.1.1",
     author="Jeongbin Park",
-    author_email="j.park@dkfz-heidelberg.de",
+    author_email="jeongbin.park@pusan.ac.kr",
     description="SSAM",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/HiDiHlabs/ssam",
+    url="https://github.com/pnucolab/ssam",
     packages=setuptools.find_packages(),
     classifiers=[
         "Programming Language :: Python :: 3",
@@ -43,7 +38,8 @@ setuptools.setup(
         "seaborn",
         "scikit-learn",
         "umap-learn",
-        "python-louvain",
+        "louvain",
+        "leidenalg",
         "sparse",
         "scikit-image",
         "pyarrow",
@@ -52,7 +48,7 @@ setuptools.setup(
         "dask[array]",
         "zarr",
         "hdbscan",
-        "torch",
+        "opencv-python",
         "packaging",
     ]
 )

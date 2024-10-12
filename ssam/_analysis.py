@@ -1,5 +1,5 @@
 import zarr
-from numcodecs import blosc
+import numcodecs
 from multiprocessing.pool import ThreadPool
 import pickle
 import dask
@@ -17,8 +17,8 @@ from scipy import ndimage
 from sklearn.decomposition import PCA
 from tempfile import TemporaryDirectory
 from sklearn.neighbors import kneighbors_graph
-import community
-import networkx as nx
+import louvain, leidenalg
+import igraph as ig
 from sklearn.cluster import DBSCAN, OPTICS
 import hdbscan
 from skimage import filters
@@ -35,11 +35,12 @@ from sklearn.neighbors import LocalOutlierFactor
 
 import time
 import pyarrow
+
+from scipy.ndimage import map_coordinates
+
 from packaging import version
 
-from .utils import corr, calc_ctmap, calc_corrmap, flood_fill, calc_kde
-from .aaec import AAEClassifier
-
+from .utils import corr, calc_ctmap, calc_corrmap, calc_kde
 
 def run_sctransform(data, clip_range=None, verbose=True, debug_path=None, plot_model_pars=False, **kwargs):
     """
@@ -199,18 +200,88 @@ class SSAMAnalysis(object):
         self.ncores = ncores
         self.verbose = verbose
 
+        if 'kde_computed' in self.dataset.zarr_group and all(self.dataset.zarr_group['kde_computed']):
+            self._m("Loaded existing KDE results.")
+            self._load_kde()
+
+        if 'local_maxs' in self.dataset.zarr_group:
+            self._m("Loaded existing local maxima.")
+            self.dataset.local_maxs = tuple(self.dataset.zarr_group['local_maxs'][:])
+        
+        if 'vf_normalized' in self.dataset.zarr_group and 'normalized_vectors' in self.dataset.zarr_group:
+            self._m("Loaded a precomputed normalized vector field.")
+            self.dataset.vf_normalized = da.from_zarr(self.dataset.zarr_group['vf_normalized'])
+            self.dataset.normalized_vectors = self.dataset.zarr_group['normalized_vectors'][:]
+
+        if 'vf_scaled' in self.dataset.zarr_group and 'scaled_vectors' in self.dataset.zarr_group:
+            self.dataset.vf_scaled = da.from_zarr(self.dataset.zarr_group['vf_scaled'])
+            self.dataset.scaled_vectors = self.dataset.zarr_group['scaled_vectors'][:]
+        
+        if 'cluster_labels' in self.dataset.zarr_group and 'filtered_cluster_labels' in self.dataset.zarr_group:
+            self._m("Loaded existing cluster labels.")
+            self.dataset.cluster_labels = self.dataset.zarr_group['cluster_labels'][:]
+            self.dataset.filtered_cluster_labels = self.dataset.zarr_group['filtered_cluster_labels'][:]
+            self.dataset.centroids = self.dataset.zarr_group['centroids'][:]
+            self.dataset.centroids_stdev = self.dataset.zarr_group['centroids_stdev'][:]
+        
+        if 'tsne' in self.dataset.zarr_group:
+            self._m("Loaded an existing t-SNE result.")
+            self.dataset.tsne = self.dataset.zarr_group['tsne'][:]
+        
+        if 'umap' in self.dataset.zarr_group:
+            self._m("Loaded an existing UMAP result.")
+            self.dataset.umap = self.dataset.zarr_group['umap'][:]
+        
+        if 'celltype_maps' in self.dataset.zarr_group:
+            self._m("Loaded existing cell type maps.")
+            self.dataset.celltype_maps = self.dataset.zarr_group['celltype_maps'][:]
+            if 'max_correlations' in self.dataset.zarr_group:
+                self.dataset.max_correlations = self.dataset.zarr_group['max_correlations'][:]
+            else:
+                self.dataset.max_correlations = None
+            if 'max_probabilities' in self.dataset.zarr_group:
+                self.dataset.max_probabilities = self.dataset.zarr_group['max_probabilities'][:]
+            else:
+                self.dataset.max_probabilities = None
+
+        if 'filtered_celltype_maps' in self.dataset.zarr_group:
+            self._m("Loaded existing filtered cell type maps.")
+            self.dataset.filtered_celltype_maps = self.dataset.zarr_group['filtered_celltype_maps'][:]
+
+        if 'celltype_binned_centers' in self.dataset.zarr_group and 'celltype_binned_counts' in self.dataset.zarr_group:
+            self._m("Loaded existing cell type binned centers and counts.")
+            self.dataset.celltype_binned_centers = self.dataset.zarr_group['celltype_binned_centers'][:]
+            self.dataset.celltype_binned_counts = self.dataset.zarr_group['celltype_binned_counts'][:]
+        
+        if 'inferred_domains' in self.dataset.zarr_group and 'inferred_domains_cells' in self.dataset.zarr_group:
+            self._m("Loaded existing inferred domains.")
+            self.dataset.inferred_domains = self.dataset.zarr_group['inferred_domains'][:]
+            self.dataset.inferred_domains_cells = self.dataset.zarr_group['inferred_domains_cells'][:]
+
+        if 'inferred_domains_compositions' in self.dataset.zarr_group:
+            self._m("Loaded existing inferred domains compositions.")
+            self.dataset.inferred_domains_compositions = self.dataset.zarr_group['inferred_domains_compositions'][:]
+        
+        if 'watershed_segments' in self.dataset.zarr_group and 'watershed_celltype_maps' in self.dataset.zarr_group:
+            self._m("Loaded existing watershed segmentations.")
+            self.dataset.watershed_segments = self.dataset.zarr_group['watershed_segments'][:]
+            self.dataset.watershed_celltype_maps = self.dataset.zarr_group['watershed_celltype_maps'][:]
+        
+        if 'transferred_cluster_labels' in self.dataset.zarr_group and 'transferred_cluster_correlations' in self.dataset.zarr_group:
+            self._m("Loaded existing transferred cluster labels.")
+            self.dataset.transferred_cluster_labels = self.dataset.zarr_group['transferred_cluster_labels'][:]
+            self.dataset.transferred_cluster_correlations = self.dataset.zarr_group['transferred_cluster_correlations'][:]
+
     def _m(self, message):
         if self.verbose:
             print(message, flush=True)
-    
-    def load_kde(self):
-        self._load_kde()
     
     def _load_kde(self):
         assert 'kde_computed' in self.dataset.zarr_group, "KDE has not been computed!"
         assert all(self.dataset.zarr_group['kde_computed']), "KDE data is incomplete!"
         self.dataset.genes = list(self.dataset.zarr_group['genes'][:])
-        self.dataset.vf = da.from_zarr(self.dataset.zarr_group['vf'])
+        self.dataset._vf = da.from_zarr(self.dataset.zarr_group['vf'])
+        self.dataset._vf_norm = da.from_zarr(self.dataset.zarr_group['vf_norm'])
         self.dataset.sampling_distance = self.dataset.zarr_group['vf_params'][0]
         self.dataset.bandwidth = self.dataset.zarr_group['vf_params'][1]
         self.dataset.shape = self.dataset.vf_norm.shape
@@ -269,9 +340,9 @@ class SSAMAnalysis(object):
         :param re_run: Recomputes KDE, ignoring all existing precomputed densities in the data directory.
         :type re_run: bool
         """
-        if not re_run and 'kde_computed' in self.dataset.zarr_group and all(self.dataset.zarr_group['kde_computed']):
-            self._load_kde()
-            self._m("Loaded an existing KDE result. If you want to recompute KDE with new parameters, set re_run=True.")
+
+        if not re_run and self.dataset.vf is not None:
+            self._m("It seems that KDE has already been fully computed. Are you sure you want to re-run KDE? If so, set re_run=True.")
             return
             
         if kernel != 'gaussian':
@@ -338,7 +409,7 @@ class SSAMAnalysis(object):
                                         self.ncores)
                 data = np.array(data) / ((2 * np.pi * (bandwidth ** 2)) ** (locs.shape[-1] / 2)) * sampling_distance ** 2
                 self._m("Saving KDE for gene %s..."%gene)
-                blosc.set_nthreads(self.ncores)
+                numcodecs.blosc.set_nthreads(self.ncores)
                 gidx_coords = [gidx] * len(coords[0])
                 if len(coords) == 0:
                     self._m("Warning: Thee computed density is zero. Maybe something is wrong?")
@@ -346,13 +417,14 @@ class SSAMAnalysis(object):
                     self.dataset.zarr_group['vf'].set_coordinate_selection(tuple(list(coords) + [gidx_coords]), data)
                 self.dataset.zarr_group['kde_computed'][gidx] = True
                 self.dataset._try_flush()
-                
+
         self.dataset.ndim = 2 if depth == 1 else 3
         self.dataset.expression_threshold = 1 / (np.sqrt(2 * np.pi) * bandwidth) ** self.dataset.ndim
         self.dataset.norm_threshold = self.dataset.expression_threshold * 2
         self.dataset.genes = list(genes)
         self.dataset.vf = da.from_zarr(self.dataset.zarr_group['vf'])
         self.dataset.shape = self.dataset.vf_norm.shape
+        self._m("Done!")
         return
 
     def calc_correlation_map(self, corr_size=3):
@@ -377,18 +449,22 @@ class SSAMAnalysis(object):
         :type search_size: int
         """
 
+        self._m("Finding local maxima...")
         max_mask = self.dataset.vf_norm == ndimage.maximum_filter(self.dataset.vf_norm, size=search_size)
+        self._m("Filtering local maxima based on norm threshold...")
         max_mask &= self.dataset.vf_norm > self.dataset.norm_threshold
-        if self.dataset.expression_threshold > 0:
-            exp_mask = da.zeros_like(max_mask)
-            for i in range(len(self.dataset.genes)):
-                exp_mask |= self.dataset.vf[..., i] > self.dataset.expression_threshold
-            max_mask &= exp_mask
         if mask is not None:
+            self._m("Filtering local maxima based on the given mask...")
             max_mask &= mask
         local_maxs = np.where(max_mask.compute())
+        if self.dataset.expression_threshold > 0:
+            self._m("Filtering local maxima based on gene expression threshold...")
+            self.dataset.local_maxs = local_maxs
+            vector_mask = self.dataset.selected_vectors > self.dataset.expression_threshold
+            local_maxs = tuple(np.array(self.dataset.local_maxs).T[np.any(vector_mask, axis=1)].T)
         self._m("Found %d local max vectors."%len(local_maxs[0]))
         self.dataset.local_maxs = local_maxs
+        self.dataset.zarr_group['local_maxs'] = np.array(local_maxs)
         return
     
     def downsample_localmax(self, max_count, seed=0):
@@ -397,7 +473,7 @@ class SSAMAnalysis(object):
         self.dataset.local_maxs = tuple([self.dataset.local_maxs[i][ds_indices] for i in range(3)])
         return
 
-    def normalize_vectors_sctransform(self, vst_kwargs={}, max_chunk_size=1024**3/2, scale=False, re_run=False):
+    def normalize_vectors_sctransform(self, vst_kwargs={}, max_chunk_size=1024**3/2, re_run=False):
         """
         Normalize and regularize vectors using SCtransform
 
@@ -445,28 +521,13 @@ class SSAMAnalysis(object):
             res[nonzero_mask] = res_nonzero
             vf_normalized[i*chunk_size:(i+1)*chunk_size] = res
             
-        if scale:
-            self._m("Scaling data...")
-            #X = da.from_zarr(vf_normalized)[np.ravel(self.dataset.vf_norm > self.dataset.norm_threshold)]
-            #mu = np.mean(X, axis=0).compute()
-            #sigma = np.std(X, axis=0).compute()
-            X = da.from_zarr(vf_normalized)[np.ravel(self.dataset.vf_norm > self.dataset.norm_threshold)].compute()
-            mu = np.mean(X, axis=0)
-            sigma = np.std(X, axis=0)
-            with np.errstate(divide='ignore', invalid='ignore'):
-                for i in range(total_chunkcnt):
-                    self._m("Processing chunk %d (of %d)..."%(i+1, total_chunkcnt))
-                    X = vf_normalized[i*chunk_size:(i+1)*chunk_size]
-                    vf_normalized[i*chunk_size:(i+1)*chunk_size] = np.nan_to_num((X - mu) / sigma)
-                norm_vec = np.nan_to_num((norm_vec - mu) / sigma)
-
         self.dataset.normalized_vectors = self.dataset.zarr_group.array(name='normalized_vectors', data=np.array(norm_vec))[:]
         self.dataset._try_flush()
         self.dataset.vf_normalized = da.from_zarr(vf_normalized)
         return
     
     
-    def normalize_vectors(self, normalize_gene=False, normalize_vector=True, normalize_median=False, size_after_normalization=10, log_transform=True, scale=True, max_chunk_size=1024**3/2, re_run=False):
+    def normalize_vectors(self, normalize_gene=False, normalize_vector=True, normalize_median=False, size_after_normalization=10, log_transform=True, max_chunk_size=1024**3/2):
         """
         Normalize and regularize vectors.
 
@@ -476,8 +537,6 @@ class SSAMAnalysis(object):
         :type normalize_vector: bool
         :param log_transform: If True, vectors are log transformed.
         :type log_transform: bool
-        :param scale: If True, genes are z-scaled (mean centered and scaled by stdev).
-        :type scale: bool
         """
         
         def _normalize(vecs):
@@ -499,12 +558,6 @@ class SSAMAnalysis(object):
                 _vecs = np.log(_vecs + 1)
             return _vecs
         
-        if not re_run and 'vf_normalized' in self.dataset.zarr_group and 'normalized_vectors' in self.dataset.zarr_group:
-            self.dataset.vf_normalized = da.from_zarr(self.dataset.zarr_group['vf_normalized'])
-            self.dataset.normalized_vectors = self.dataset.zarr_group['normalized_vectors'][:]
-            self._m("Loaded a cached normalized vector field (to avoid this behavior, set re_run=True).")
-            return
-
         if 'vf_normalized' in self.dataset.zarr_group:
             del self.dataset.zarr_group['vf_normalized']
         if 'normalized_vectors' in self.dataset.zarr_group:
@@ -525,29 +578,47 @@ class SSAMAnalysis(object):
             vecs = flat_vf[i*chunk_size:(i+1)*chunk_size].compute()
             nonzero_mask = np.sum(vecs, axis=1) > 0
             vecs_nonzero = vecs[nonzero_mask]
-            res = np.zeros_like(vecs)
-            res[nonzero_mask] = _normalize(vecs_nonzero)
-            vf_normalized[i*chunk_size:(i+1)*chunk_size] = res
-            
-        if scale:
-            self._m("Scaling data...")
-            X = da.from_zarr(vf_normalized)[np.ravel(self.dataset.vf_norm > self.dataset.norm_threshold)].compute()
-            mu = np.mean(X, axis=0)
-            sigma = np.std(X, axis=0)
-            with np.errstate(divide='ignore', invalid='ignore'):
-                for i in range(total_chunkcnt):
-                    self._m("Processing chunk %d (of %d)..."%(i+1, total_chunkcnt))
-                    X = vf_normalized[i*chunk_size:(i+1)*chunk_size]
-                    vf_normalized[i*chunk_size:(i+1)*chunk_size] = np.nan_to_num((X - mu) / sigma)
-            norm_vec = np.nan_to_num((norm_vec - mu) / sigma)
-        self.dataset.normalized_vectors = self.dataset.zarr_group.array(name='normalized_vectors', data=np.array(norm_vec))[:]
+            if vecs_nonzero.shape[0] != 0:
+                res = np.zeros_like(vecs)
+                res[nonzero_mask] = _normalize(vecs_nonzero)
+                vf_normalized[i*chunk_size:(i+1)*chunk_size] = res
+        self.dataset.normalized_vectors = np.array(norm_vec)
+        self.dataset.zarr_group['normalized_vectors'] = self.dataset.normalized_vectors
         self.dataset._try_flush()
         self.dataset.vf_normalized = da.from_zarr(vf_normalized)
         return
 
-    
+    def scale_vectors(self, max_chunk_size=1024**3/2):
+        self._m("Scaling data...")
+
+        if 'vf_scaled' in self.dataset.zarr_group:
+            del self.dataset.zarr_group['vf_scaled']
+        if 'scaled_vectors' in self.dataset.zarr_group:
+            del self.dataset.zarr_group['scaled_vectors']
+
+
+        vf_scaled = self.dataset.zarr_group.zeros(name='vf_scaled', shape=self.dataset.vf_normalized.shape, dtype='f4')
+        X = self.dataset.vf_normalized[np.ravel(self.dataset.vf_norm > self.dataset.norm_threshold)].compute()
+        mu = np.mean(X, axis=0)
+        sigma = np.std(X, axis=0)
+
+        chunk_size = int(np.floor(max_chunk_size / (8 * len(self.dataset.genes)))) # TODO: check actual memory usage
+        total_chunkcnt = int(np.ceil(vf_scaled.shape[0] / chunk_size))
+
+        with np.errstate(divide='ignore', invalid='ignore'):
+            for i in range(total_chunkcnt):
+                self._m("Processing chunk %d (of %d)..."%(i+1, total_chunkcnt))
+                X = self.dataset.vf_normalized[i*chunk_size:(i+1)*chunk_size].compute()
+                vf_scaled[i*chunk_size:(i+1)*chunk_size] = np.nan_to_num((X - mu) / sigma)
+        scaled_vec = np.nan_to_num((self.dataset.normalized_vectors - mu) / sigma)
+
+        self.dataset.scaled_vectors = scaled_vec
+        self.dataset.zarr_group['scaled_vectors'] = self.dataset.scaled_vectors
+        self.dataset._try_flush()
+        self.dataset.vf_scaled = da.from_zarr(vf_scaled)
+
     def _correct_cluster_labels(self, cluster_labels, outlier_detection_method, outlier_detection_kwargs):
-        new_labels = remove_outliers(self.dataset.normalized_vectors, cluster_labels, outlier_detection_method, outlier_detection_kwargs)
+        new_labels = remove_outliers(self.dataset.scaled_vectors, cluster_labels, outlier_detection_method, outlier_detection_kwargs)
         return new_labels
 
     def _calc_centroid(self, cluster_labels, normalize=True, norm='l2'):
@@ -557,7 +628,7 @@ class SSAMAnalysis(object):
         for lbl in np.unique(cluster_labels):
             if lbl == -1:
                 continue
-            cl_vecs = self.dataset.normalized_vectors[cluster_labels == lbl, :]
+            cl_vecs = self.dataset.scaled_vectors[cluster_labels == lbl, :]
             if normalize:
                 preprocessing.normalize(cl_vecs, norm=norm, axis=1)
             #cl_dists = scipy.spatial.distance.cdist(cl_vecs, cl_vecs, metric)
@@ -569,7 +640,7 @@ class SSAMAnalysis(object):
             centroids_stdev.append(centroid_stdev)
         return centroids, centroids_stdev#, medoids
 
-    def cluster_vectors(self, method="louvain", pca_dims=-1, min_cluster_size=2, max_correlation=1.0, metric="correlation",
+    def cluster_vectors(self, method="leiden", pca_dims=-1, min_cluster_size=2, max_correlation=1.0, metric="correlation",
                         outlier_detection_method='medoid-correlation', outlier_detection_kwargs={}, random_state=0, **kwargs):
         """
         Cluster the given vectors using the specified clustering method.
@@ -599,12 +670,12 @@ class SSAMAnalysis(object):
         :type random_state: int or random state object
         """
         
-        def get_normalized_vectors():
-            vecs_normalized = self.dataset.normalized_vectors
+        def get_scaled_vectors():
+            vecs_scaled = self.dataset.scaled_vectors
             if pca_dims < 0:
-                return vecs_normalized
+                return vecs_scaled
             else:
-                return PCA(n_components=pca_dims, random_state=random_state).fit_transform(vecs_normalized)
+                return PCA(n_components=pca_dims, random_state=random_state).fit_transform(vecs_scaled)
         
         def remove_small_clusters(lbls, lbls2=None):
             small_clusters = []
@@ -633,27 +704,39 @@ class SSAMAnalysis(object):
             else:
                 return lbls
         
-        if method == 'louvain':
-            vecs_normalized_dimreduced = get_normalized_vectors()
-            resolution = kwargs.get("resolution", 0.6)
+        if method == 'louvain' or method == 'leiden':
+            vecs_scaled_dimreduced = get_scaled_vectors()
+            resolution = kwargs.get("resolution", 1.0)
             prune = kwargs.get("prune", 1.0/15.0)
             snn_neighbors = kwargs.get("snn_neighbors", 30)
-            subclustering = kwargs.get("subclustering", True)
+            subclustering = kwargs.get("subclustering", False)
             dbscan_eps = kwargs.get("dbscan_eps", 0.4)
             
-            def cluster_louvain(vecs):
+            def cluster_leiden_or_louvain(vecs):
                 k = min(snn_neighbors, vecs.shape[0])
                 knn_graph = kneighbors_graph(vecs, k, mode='connectivity', include_self=True, metric=metric).todense()
                 intersections = np.dot(knn_graph, knn_graph.T)
                 snn_graph = intersections / (k + (k - intersections)) # borrowed from Seurat
                 snn_graph[snn_graph < prune] = 0
-                G = nx.from_numpy_matrix(snn_graph)
-                partition = community.best_partition(G, resolution=resolution, random_state=random_state)
-                lbls = np.array(list(partition.values()))
+
+                source_vertices, target_vertices = np.where(snn_graph > 0)
+                weights = snn_graph[source_vertices, target_vertices]
+
+                G = ig.Graph(directed=True)
+                G.add_vertices(vecs.shape[0])
+                G.add_edges(list(zip(source_vertices, target_vertices)))
+                G.es["weight"] = np.ravel(weights).tolist()
+
+                if method == 'leiden':
+                    partition = leidenalg.find_partition(G, leidenalg.RBConfigurationVertexPartition, seed=random_state, weights="weight", resolution_parameter=resolution)
+                else:
+                    partition = louvain.find_partition(G, louvain.RBConfigurationVertexPartition, seed=random_state, weights="weight", resolution_parameter=resolution)
+
+                lbls = np.array(partition.membership)
                 return lbls
             
             if subclustering:
-                super_lbls = cluster_louvain(vecs_normalized_dimreduced)
+                super_lbls = cluster_leiden_or_louvain(vecs_scaled_dimreduced)
                 dbscan = DBSCAN(eps=dbscan_eps, min_samples=min_cluster_size, metric=metric)
                 all_lbls = np.zeros_like(super_lbls)
                 global_lbl_idx = 0
@@ -662,7 +745,7 @@ class SSAMAnalysis(object):
                     if super_lbl == -1:
                         all_lbls[super_lbl_idx] = -1
                         continue
-                    sub_lbls = dbscan.fit(vecs_normalized_dimreduced[super_lbl_idx]).labels_
+                    sub_lbls = dbscan.fit(vecs_scaled_dimreduced[super_lbl_idx]).labels_
                     for sub_lbl in set(list(sub_lbls)):
                         if sub_lbl == -1:
                             all_lbls[tuple([super_lbl_idx[sub_lbls == sub_lbl]])] = -1
@@ -670,9 +753,9 @@ class SSAMAnalysis(object):
                         all_lbls[tuple([super_lbl_idx[sub_lbls == sub_lbl]])] = global_lbl_idx
                         global_lbl_idx += 1
             else:
-                all_lbls = cluster_louvain(vecs_normalized_dimreduced)
+                all_lbls = cluster_leiden_or_louvain(vecs_scaled_dimreduced)
         elif method in ["dbscan", "hdbscan", "optics"]:
-            vecs_normalized_dimreduced = get_normalized_vectors()
+            vecs_scaled_dimreduced = get_scaled_vectors()
             if method == "dbscan":
                 cl = DBSCAN(**kwargs)
             elif method == "hdbscan":
@@ -681,7 +764,7 @@ class SSAMAnalysis(object):
                 cl = OPTICS(**kwargs)
             else:
                 raise NotImplementedError("Unknown method %s."%method)
-            cl.fit(vecs_normalized_dimreduced)
+            cl.fit(vecs_scaled_dimreduced)
             all_lbls = np.array(clusterer.labels_, copy=True)
         
         if outlier_detection_method is not None:
@@ -716,12 +799,16 @@ class SSAMAnalysis(object):
             centroids, centroids_stdev = self._calc_centroid(filtered_all_lbls)
         
         
-        self.dataset._try_flush()
-        self.dataset.zarr_group['cluster_labels'] = all_lbls
         self.dataset.cluster_labels = all_lbls
         self.dataset.filtered_cluster_labels = filtered_all_lbls
         self.dataset.centroids = np.array(centroids)
         self.dataset.centroids_stdev = np.array(centroids_stdev)
+
+        self.dataset.zarr_group['cluster_labels'] = self.dataset.cluster_labels
+        self.dataset.zarr_group['filtered_cluster_labels'] = self.dataset.filtered_cluster_labels
+        self.dataset.zarr_group['centroids'] = self.dataset.centroids
+        self.dataset.zarr_group['centroids_stdev'] = self.dataset.centroids_stdev
+
         #self.dataset.medoids = np.array(medoids)
         
         self._m("Found %d clusters"%len(centroids))
@@ -750,6 +837,11 @@ class SSAMAnalysis(object):
         self.dataset.filtered_cluster_labels[lm_mask] = len(self.dataset.centroids)
         self.dataset.centroids = np.append(self.dataset.centroids, [rg_centroid], axis=0)
         self.dataset.centroids_stdev = np.append(self.dataset.centroids_stdev, [rg_centroid_stdev], axis=0)
+
+        self.dataset.zarr_group['cluster_labels'] = self.dataset.cluster_labels
+        self.dataset.zarr_group['filtered_cluster_labels'] = self.dataset.filtered_cluster_labels
+        self.dataset.zarr_group['centroids'] = self.dataset.centroids
+        self.dataset.zarr_group['centroids_stdev'] = self.dataset.centroids_stdev
     
     def exclude_and_merge_clusters(self, exclude=[], merge=[], outlier_detection_method='medoid-correlation', outlier_detection_kwargs={}):
         """
@@ -789,6 +881,7 @@ class SSAMAnalysis(object):
         for centroid in exclude[::-1]:
             self.dataset.cluster_labels[self.dataset.cluster_labels > centroid] -= 1
         self.dataset.normalized_vectors = self.dataset.normalized_vectors[mask, :]
+        self.dataset.scaled_vectors = self.dataset.scaled_vectors[mask, :]
         
         new_labels = self._correct_cluster_labels(self.dataset.cluster_labels, outlier_detection_method, outlier_detection_kwargs)
         centroids, centroids_stdev = self._calc_centroid(new_labels)
@@ -796,15 +889,49 @@ class SSAMAnalysis(object):
         self.dataset.centroids = centroids
         self.dataset.centroids_stdev = centroids_stdev
         self.dataset.filtered_cluster_labels = new_labels
+
+        self.dataset.zarr_group['cluster_labels'] = self.dataset.cluster_labels
+        self.dataset.zarr_group['local_maxs'] = self.dataset.local_maxs
+        self.dataset.zarr_group['normalized_vectors'] = self.dataset.normalized_vectors
+        self.dataset.zarr_group['scaled_vectors'] = self.dataset.scaled_vectors
+        self.dataset.zarr_group['filtered_cluster_labels'] = self.dataset.filtered_cluster_labels
+        self.dataset.zarr_group['centroids'] = self.dataset.centroids
+        self.dataset.zarr_group['centroids_stdev'] = self.dataset.centroids_stdev
         
         return
 
-    def transfer_labels(self, labeled_data, labels, use_filtered_cluster_labels=True, outlier_detection_method=None, outlier_detection_kwargs={}, scale=False, normalize=False, method='correlation', transfer_options={}):
+    def transfer_cluster_labels(self, labeled_data, labels, normalize=True, size_after_normalization=1e6):
+        X = labeled_data
+        
+        if normalize:
+            X = np.log(preprocessing.normalize(X, norm='l1', axis=1) * size_after_normalization + 1)
+        
+        labels = np.array(labels)
+
+        centroids = np.zeros([len(labels), len(self.dataset.genes)])
+        for idx, lbl in enumerate(labels):
+            centroids[idx] = np.mean(X[labels == lbl], axis=0)
+        
+        vf_centroids = [self.dataset.vf_normalized[np.ravel(self.dataset.filtered_celltype_maps == i)].mean(axis=0).compute() for i in range(self.dataset.centroids.shape[0])]
+
+        centroid_corrs = np.zeros([len(vf_centroids), len(centroids)])
+        for i, ci in enumerate(vf_centroids):
+            for j, cj in enumerate(centroids):
+                centroid_corrs[i, j] = corr(ci, cj)
+        
+        self.dataset.transferred_cluster_labels = labels[np.argmax(centroid_corrs, axis=1)]
+        self.dataset.transferred_cluster_correlations = np.max(centroid_corrs, axis=1)
+
+        arr = self.dataset.zarr_group.create('transferred_cluster_labels', shape=self.dataset.transferred_cluster_labels.shape, overwrite=True, dtype=object, object_codec=numcodecs.JSON())
+        arr[...] = self.dataset.transferred_cluster_labels
+        self.dataset.zarr_group['transferred_cluster_correlations'] = self.dataset.transferred_cluster_correlations
+
+    def transfer_labels(self, labeled_data, labels, use_filtered_cluster_labels=True, outlier_detection_method=None, outlier_detection_kwargs={}, scale=True, normalize=True, method='correlation', transfer_options={}):
         X = labeled_data
         if scale:
             X = preprocessing.scale(X)
         if normalize:
-            X = preprocessing.normalize(X, norm='l2', axis=1)
+            X = preprocessing.normalize(X, norm='l1', axis=1)
         if outlier_detection_method is not None:
             labels = self._correct_cluster_labels(labels, outlier_detection_method, outlier_detection_kwargs)
         if method == 'correlation':
@@ -815,8 +942,8 @@ class SSAMAnalysis(object):
             centroids = np.zeros([len(uniq_labels), len(self.dataset.genes)])
             for idx, lbl in enumerate(uniq_labels):
                 centroids[idx] = np.mean(X[labels == lbl], axis=0)
-            centroid_corrs = np.zeros([len(self.dataset.normalized_vectors), len(centroids)])
-            for i, ci in enumerate(self.dataset.normalized_vectors):
+            centroid_corrs = np.zeros([len(self.dataset.scaled_vectors), len(centroids)])
+            for i, ci in enumerate(self.dataset.scaled_vectors):
                 for j, cj in enumerate(centroids):
                     centroid_corrs[i, j] = corr(ci, cj)
             transferred_labels = np.argmax(centroid_corrs, axis=1)
@@ -826,7 +953,7 @@ class SSAMAnalysis(object):
             min_p = transfer_options.get('min_p', 0)
             from sklearn import svm
             clf = svm.SVC(probability=True).fit(X, labels)
-            probs = clf.predict_proba(self.dataset.normalized_vectors)
+            probs = clf.predict_proba(self.dataset.scaled_vectors)
             transferred_labels = np.argmax(probs, axis=1)
             if min_p > 0:
                 transferred_labels[np.max(probs, axis=1) < min_p] = -1
@@ -842,6 +969,11 @@ class SSAMAnalysis(object):
         
     
     def map_celltypes_aaec(self, n_celltypes=-1, X=None, labels=None, use_transferred_labels=False, unsupervised=False, beta=0, epochs=1000, n=1, seed=0, batch_size=1000, sample_size=0, chunk_size=100000, z_dim=10, noise=0, normalize=False, use_forget_labels=False):
+        try:
+            from .aaec import AAEClassifier
+        except:
+            self._m("Please install Pytorch to use AAE Classifier.")
+
         # beta: CVPR 2019, Class-Balanced Loss Based on Effective Number of Samples, Y. Cui et al.
         if not unsupervised:
             if labels is None:
@@ -856,7 +988,7 @@ class SSAMAnalysis(object):
             for idx, lbl in enumerate(_uniq_labels):
                 _labels_sorted[_labels == lbl] = idx
             if X is None:
-                X = self.dataset.normalized_vectors
+                X = self.dataset.scaled_vectors
             _X = X[valid_indices]
             if n_celltypes == -1:
                 n_celltypes = np.max(_labels_sorted) + 1
@@ -865,7 +997,7 @@ class SSAMAnalysis(object):
         
         model = AAEClassifier(verbose=self.verbose, random_seed=seed)
         thresholded_mask = (self.dataset.vf_norm > self.dataset.norm_threshold).compute()
-        vf_thresholded = self.dataset.vf_normalized[np.ravel(thresholded_mask)]
+        vf_thresholded = self.dataset.vf_scaled[np.ravel(thresholded_mask)]
         
         self._m("Training model...")
         if unsupervised:
@@ -894,7 +1026,7 @@ class SSAMAnalysis(object):
         
         self._m("Predicting probabilities...")
         nonzero_mask = (self.dataset.vf_norm > 0).compute()
-        predicted_labels, max_probs = model.predict_labels(self.dataset.vf_normalized[np.ravel(nonzero_mask)],
+        predicted_labels, max_probs = model.predict_labels(self.dataset.vf_scaled[np.ravel(nonzero_mask)],
                                                            normalized=normalize,
                                                            n=n)
         if not unsupervised:
@@ -916,13 +1048,16 @@ class SSAMAnalysis(object):
         self.dataset.max_correlations = None
         self.dataset.celltype_maps = ctmaps
     
-    def _map_celltype(self, centroid, vf_normalized, exclude_gene_indices=None, chunk_size=1024**3):
-        ctmap = np.zeros(self.dataset.vf_normalized.shape[0], dtype=float)
+        self.dataset.zarr_group['max_probabilities'] = self.dataset.max_probabilities
+        self.dataset.zarr_group['celltype_maps'] = self.dataset.celltype_maps
+    
+    def _map_celltype(self, centroid, vf_scaled, exclude_gene_indices=None, chunk_size=1024**3):
+        ctmap = np.zeros(self.dataset.vf_scaled.shape[0], dtype=float)
         chunk_len = int(chunk_size / len(self.dataset.genes) / 8)
-        n_chunks = int(np.ceil(self.dataset.vf_normalized.shape[0] / chunk_len))
+        n_chunks = int(np.ceil(self.dataset.vf_scaled.shape[0] / chunk_len))
         for i in range(n_chunks):
-            print("Processing chunk (%d/%d)..."%(i, n_chunks))
-            vf_chunk = vf_normalized[i*chunk_len:(i+1)*chunk_len].compute()
+            self._m("Processing chunk (%d/%d)..."%(i, n_chunks))
+            vf_chunk = vf_scaled[i*chunk_len:(i+1)*chunk_len].compute()
             if exclude_gene_indices is not None:
                 vf_chunk = np.delete(vf_chunk, exclude_gene_indices, axis=1) # np.delete creates a copy, not modifying the original
             ctmap_chunk = calc_ctmap(centroid, vf_chunk, self.ncores)
@@ -939,10 +1074,9 @@ class SSAMAnalysis(object):
         :type centroids: list(np.array(int))
         """
 
-        if self.dataset.vf_normalized is None:
-            vf_normalized = self.dataset.vf.reshape([-1, len(self.dataset.genes)])
-        else:
-            vf_normalized = self.dataset.vf_normalized
+        if self.dataset.vf_scaled is None:
+            self._m("Cannot find scaled vector field. Please run `scale_vectors` first.")
+            return
 
         if centroids is None:
             centroids = self.dataset.centroids
@@ -950,8 +1084,8 @@ class SSAMAnalysis(object):
         max_corr = np.zeros(self.dataset.vf_norm.shape) - 1 # range from -1 to +1
         max_corr_idx = np.zeros(self.dataset.vf_norm.shape, dtype=int) - 1 # -1 for background
         for cidx, centroid in enumerate(centroids):
-            print("Generating cell-type map for centroid #%d..."%cidx)
-            ctmap = self._map_celltype(centroid, vf_normalized, exclude_gene_indices=None, chunk_size=chunk_size)
+            self._m("Generating cell-type map for centroid #%d..."%cidx)
+            ctmap = self._map_celltype(centroid, self.dataset.vf_scaled, exclude_gene_indices=None, chunk_size=chunk_size)
             mask = max_corr < ctmap
             max_corr[mask] = ctmap[mask]
             max_corr_idx[mask] = cidx
@@ -961,7 +1095,9 @@ class SSAMAnalysis(object):
         self.dataset.max_probabilities = None
         self.dataset.max_correlations = max_corr
         self.dataset.celltype_maps = max_corr_idx
-        
+
+        self.dataset.zarr_group['max_correlations'] = self.dataset.max_correlations
+        self.dataset.zarr_group['celltype_maps'] = self.dataset.celltype_maps
         return
 
     def filter_celltypemaps(self, min_p=0.6, min_r=0.6, min_norm=0.1, fill_blobs=True, min_blob_area=0, filter_params={}, output_mask=None):
@@ -1049,6 +1185,7 @@ class SSAMAnalysis(object):
         if output_mask is not None:
             filtered_ctmaps[~output_mask.astype(bool)] = -1
         self.dataset.filtered_celltype_maps = filtered_ctmaps
+        self.dataset.zarr_group['filtered_celltype_maps'] = self.dataset.filtered_celltype_maps
         
     def bin_celltypemaps(self, step=10, radius=100, min_r=0.6):
         """
@@ -1110,6 +1247,9 @@ class SSAMAnalysis(object):
                     
         self.dataset.celltype_binned_centers = ct_centers
         self.dataset.celltype_binned_counts = ct_counts
+
+        self.dataset.zarr_group['celltype_binned_centers'] = self.dataset.celltype_binned_centers
+        self.dataset.zarr_group['celltype_binned_counts'] = self.dataset.celltype_binned_counts
         return
         
     def find_domains(self, centroid_indices=[], n_clusters=10, norm_thres=0, merge_thres=0.6, merge_remote=True):
@@ -1226,6 +1366,9 @@ class SSAMAnalysis(object):
         
         self.dataset.inferred_domains = resized_layer_map
         self.dataset.inferred_domains_cells = resized_layer_map2
+
+        self.dataset.zarr_group['inferred_domains'] = self.dataset.inferred_domains
+        self.dataset.zarr_group['inferred_domains_cells'] = self.dataset.inferred_domains_cells
      
     def exclude_and_merge_domains(self, exclude=[], merge=[]):
         """
@@ -1253,6 +1396,9 @@ class SSAMAnalysis(object):
             self.dataset.inferred_domains[self.dataset.inferred_domains == i] = new_idx
             self.dataset.inferred_domains_cells[self.dataset.inferred_domains_cells == i] = new_idx
 
+        self.dataset.zarr_group['inferred_domains'] = self.dataset.inferred_domains
+        self.dataset.zarr_group['inferred_domains_cells'] = self.dataset.inferred_domains_cells
+
     def calc_cell_type_compositions(self):
         """
         Calculate cell type compositions in each domain.
@@ -1267,7 +1413,8 @@ class SSAMAnalysis(object):
         cell_type_compositions.append(counts_all) # Add proportion from the whole tissue
         cell_type_compositions = preprocessing.normalize(cell_type_compositions, axis=1, norm='l1')
         self.dataset.inferred_domains_compositions = cell_type_compositions
-        
+
+        self.dataset.zarr_group['inferred_domains_compositions'] = self.dataset.inferred_domains_compositions        
         
     def calc_spatial_relationship(self):
         """
@@ -1284,30 +1431,25 @@ class SSAMAnalysis(object):
 
         self.dataset.spatial_relationships = preprocessing.normalize(sparel, axis=1, norm='l1')
 
-    def run_watershed(self, mask_markers):
+    def run_watershed(self, mask, z=0):
         """
         Run watershed segmentation based on the cell-type map with a mask of marker image (experimental).
         
-        :param exclude: Indices of the domains which will be excluded.
-        :type exclude: list(int)
+        :param mask: Thresholded mask of marker image.
+        :type mask: numpy.ndarray(float)
         """
         import cv2
 
-        self.watershed_segmentations = np.zeros(self.dataset.vf_norm.shape[:-1], dtype="int32")
-        self.waterhsed_celltype_map = np.zeros(self.dataset.vf_norm.shape[:-1], dtype="int32")
-
-        vn = self.dataset.vf_norm.compute()
-
-        from skimage import filters
-        from skimage import exposure
-
-        for idx, cl in enumerate(denovo_labels_final):
-            m = np.logical_and(self.dataset.celltype_maps == list(denovo_labels_final).index(cl), self.dataset.max_correlations > 0.6, vn > self.dataset.norm_threshold)
+        nsegs_prev = 0
+        watershed_segments = np.zeros_like(mask, dtype=int) - 1
+        watershed_celltype_maps = np.zeros_like(mask, dtype=int) - 1
+        for idx in range(np.max(self.dataset.celltype_maps) + 1):
+            self._m("Segmenting cell type #%d..."%idx)
+            m = self.dataset.celltype_maps[..., z] == idx
             
-            # https://opencv-python-tutroals.readthedocs.io/en/latest/py_tutorials/py_imgproc/py_watershed/py_watershed.html
-            thresh = np.zeros_like(mask_markers, dtype=np.uint8)
-            thresh[m] = mask_markers[m]
-            thresh = thresh[..., 0]
+            # https://opencv24-python-tutorials.readthedocs.io/en/latest/py_tutorials/py_imgproc/py_watershed/py_watershed.html
+            thresh = np.zeros_like(mask, dtype=np.uint8)
+            thresh[m] = mask[m]
 
             # noise removal
             kernel = np.ones((3,3),np.uint8)
@@ -1342,9 +1484,52 @@ class SSAMAnalysis(object):
             grey = (grey[..., 0] * 255 / np.max(grey)).astype(np.uint8)
             img = cv2.cvtColor(grey, cv2.COLOR_GRAY2BGR)
             
-            markers = cv2.watershed(img, markers)
+            markers = cv2.watershed(img, markers) # -1: border, 0: none, 1: background, 2~: segments
+            markers -= 2
+            markers[markers < 0] = -1
+            markers[~m] = -1
+
+            watershed_segments[markers > -1] = markers[markers > -1] + nsegs_prev
+            watershed_celltype_maps[markers > -1] = idx
             
-            markers[markers < 2] = 0
-            markers[markers > 0] -= 1
-            self.waterhsed_celltype_map[markers > 0] = idx
-            self.watershed_segmentations += markers
+            nsegs_prev += np.max(markers) + 1
+            
+        self.dataset.watershed_celltype_maps = watershed_celltype_maps
+        self.dataset.watershed_segments = watershed_segments
+
+        self.dataset.zarr_group['watershed_segments'] = self.dataset.watershed_segments
+        self.dataset.zarr_group['watershed_celltype_maps'] = self.dataset.watershed_celltype_maps
+
+    def compute_cell_by_gene_matrix(self, df):
+        """
+        Identify and count genes present within each cell segment based on mRNA coordinates.
+
+        :param df: DataFrame containing genes and their corresponding mRNA coordinates. Must contain columns 'x' and 'y', and an index column containing gene names.
+        :type df: pandas.DataFrame
+        """
+
+        n_segments = np.max(self.dataset.watershed_segments) + 1
+
+        cell_by_gene_matrix = np.zeros((n_segments, len(self.dataset.genes)), dtype=int)
+
+        x_values = np.round(df['x'].values).astype(int)
+        y_values = np.round(df['y'].values).astype(int)
+
+        good_mask = np.logical_and(np.logical_and(x_values < self.dataset.shape[0], x_values >= 0), np.logical_and(y_values < self.dataset.shape[1], y_values >= 0))
+        x_values = x_values[good_mask]
+        y_values = y_values[good_mask]
+        gene_names = df.index[good_mask]
+
+        print("Generating spatial mRNA count matrix...")
+        counts = np.zeros([self.dataset.shape[0], self.dataset.shape[1], len(self.dataset.genes)], dtype=int)
+        for gidx, gene in enumerate(self.dataset.genes):
+            gene_mask = gene_names == gene
+            for x, y in zip(x_values[gene_mask], y_values[gene_mask]):
+                counts[x, y, gidx] += 1
+    
+        print("Computing cell-by-gene matrix...")
+        for seg in np.arange(n_segments):
+            cell_by_gene_matrix[seg] = counts[self.dataset.watershed_segments == seg].sum(axis=0)
+            
+        self.dataset.cell_by_gene_matrix = cell_by_gene_matrix
+        self.dataset.zarr_group['cell_by_gene_matrix'] = self.dataset.cell_by_gene_matrix

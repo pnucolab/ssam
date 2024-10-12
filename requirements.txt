@@ -7,7 +7,8 @@ matplotlib
 seaborn
 scikit-learn
 umap-learn
-python-louvain
+louvain
+leidenalg
 sparse
 scikit-image
 pyarrow
@@ -16,5 +17,5 @@ dask
 dask[array]
 zarr
 hdbscan
-torch
+opencv-python
 packaging
