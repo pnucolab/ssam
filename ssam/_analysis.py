@@ -29,6 +29,7 @@ from sklearn.svm import OneClassSVM
 from sklearn.covariance import EllipticEnvelope
 from sklearn.ensemble import IsolationForest
 from sklearn.neighbors import LocalOutlierFactor
+from tqdm import tqdm
 
 import time
 
@@ -390,10 +391,16 @@ class SSAMAnalysis(object):
         if not all(self.dataset.zarr_group['kde_computed']) or re_run:
             if not re_run and any(self.dataset.zarr_group['kde_computed']):
                 self._m("Resuming KDE computation...")
-            for gidx, (gene, loc) in enumerate(locations.groupby('gene', sort=True)):
+
+            if self.verbose:
+                groupped = (pbar := tqdm(locations.groupby('gene', sort=True)))
+            else:
+                groupped = locations.groupby('gene', sort=True)
+            for gidx, (gene, loc) in enumerate(groupped):
                 if not re_run and self.dataset.zarr_group['kde_computed'][gidx]:
                     continue
-                self._m("Running KDE for gene %s..."%gene)
+                if self.verbose:
+                    pbar.set_description("Running KDE for gene %s"%gene)
                 locs = np.array(loc)
                 kde_shape = tuple(np.ceil(np.array([width, height, depth])/sampling_distance).astype(int))
                 if locs.shape[-1] == 2:
@@ -409,7 +416,8 @@ class SSAMAnalysis(object):
                                         0,
                                         self.ncores)
                 data = np.array(data) / ((2 * np.pi * (bandwidth ** 2)) ** (locs.shape[-1] / 2)) * sampling_distance ** 2
-                self._m("Saving KDE for gene %s..."%gene)
+                if self.verbose:
+                    pbar.set_description("Saving KDE for gene %s"%gene)
                 numcodecs.blosc.set_nthreads(self.ncores)
                 gidx_coords = [gidx] * len(coords[0])
                 if len(coords) == 0:
