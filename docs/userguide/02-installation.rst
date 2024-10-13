@@ -33,7 +33,7 @@ Finally we switch to pip:
 (Optional) Using ``sctransform`` for normalization
 --------------------------------------------------
 
-As of SSAM v1.1.1, SSAM uses log normalization by default. Read this article for hints on choosing an appropriate normalization method for your data: https://www.nature.com/articles/s41592-023-01814-1
+As of SSAM v1.1.0, SSAM uses log normalization by default. Read this article for hints on choosing an appropriate normalization method for your data: https://www.nature.com/articles/s41592-023-01814-1
 
 If you want to use ``sctransform`` to normalize your vectors, you can additionally install ``R`` and the R packages ``sctransform`` and ``feather``.
 
