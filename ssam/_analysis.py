@@ -775,7 +775,7 @@ class SSAMAnalysis(object):
             else:
                 raise NotImplementedError("Unknown method %s."%method)
             cl.fit(vecs_scaled_dimreduced)
-            all_lbls = np.array(clusterer.labels_, copy=True)
+            all_lbls = np.array(cl.labels_, copy=True)
         
         if outlier_detection_method is not None:
             filtered_all_lbls = self._correct_cluster_labels(all_lbls, outlier_detection_method, outlier_detection_kwargs)
