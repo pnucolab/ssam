@@ -1346,7 +1346,7 @@ class SSAMAnalysis(object):
         ctvf_vecs = binned_ctmaps[binned_ctmaps_norm > norm_thres]
         ctvf_vecs_normalized = preprocessing.normalize(ctvf_vecs, norm='l1', axis=1)
 
-        clustering = AgglomerativeClustering(n_clusters=n_clusters, linkage='ward', affinity='euclidean').fit(ctvf_vecs_normalized)
+        clustering = AgglomerativeClustering(n_clusters=n_clusters, linkage='ward').fit(ctvf_vecs_normalized)
         labels_predicted = clustering.labels_ + 1
         
         layer_map = np.zeros(binned_ctmaps_norm.shape)
