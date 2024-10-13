@@ -2,7 +2,9 @@
 SSAM (Spot-based Spatial cell-type Analysis by Multidimensional mRNA density estimation)
 ========================================================================================
 
-This repository contains the ongoing development of SSAM, including bug fixes, maintained by the Computational Omics Laboratory at Pusan National University. For the published version in 2021, please refer to https://github.com/HiDiHlabs/ssam.
+This repository contains the ongoing development of SSAM, including bugfixes, maintained by the Computational Omics Laboratory at Pusan National University (https://pnucolab.com).
+
+If you are looking for the published version in 2021, please refer to https://github.com/HiDiHlabs/ssam.
 
 Prerequisites
 =============
