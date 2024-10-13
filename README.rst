@@ -9,12 +9,12 @@ If you are looking for the published version in 2021, please refer to https://gi
 Prerequisites
 =============
 
-Currently SSAM was only tested with Python 3 in Linux environment. For details, please follow the instructions here: https://ssam.readthedocs.io/en/release/01-tldr.html#installation
+Currently SSAM was only tested with Python 3 in Linux environment. For details, please follow the instructions here: https://ssam.readthedocs.io/en/release/tldr.html#installation
 
 Install
 =======
 
-https://ssam.readthedocs.io/en/release/01-tldr.html#installation
+https://ssam.readthedocs.io/en/release/tldr.html#installation
 
 Documentation
 =============
