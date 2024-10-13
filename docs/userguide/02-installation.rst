@@ -28,7 +28,7 @@ Finally we switch to pip:
 
 ::
 
-   pip install git+https://github.com/pnucolab/ssam
+   pip install ssam
 
 (Optional) Using ``sctransform`` for normalization
 --------------------------------------------------
