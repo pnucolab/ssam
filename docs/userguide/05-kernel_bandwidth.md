@@ -25,4 +25,3 @@ adjacent area or loosing sparse cell types.
 |image0|
 
 .. |image0| image:: ../images/kernel_bw.png
-

@@ -17,52 +17,40 @@ analysis. In the paper they identified “shared and distinct
 transcriptomic cell types across neocortical areas” in the mouse brain,
 also including the mouse VISp (which is our exmaple).
 
-First we need to load the data:
+First we need to download the data:
 
 ::
 
-   scrna_cl = pd.read_feather("zenodo/multiplexed_smFISH/raw_data/scrna_data_tasic_2018/cl.feather")
-   scrna_cl_df = pd.read_feather("zenodo/multiplexed_smFISH/raw_data/scrna_data_tasic_2018/cl_df.feather")
-   scrna_genes = pd.read_feather("zenodo/multiplexed_smFISH/raw_data/scrna_data_tasic_2018/genes.feather")
-   scrna_counts = pd.read_feather("zenodo/multiplexed_smFISH/raw_data/scrna_data_tasic_2018/counts.feather")
+   !curl -L https://ndownloader.figshare.com/files/26404781 -o sc_mouse_cortex.h5ad # data grabbed from SquidPy tutorial
 
-   scrna_clusters = scrna_cl['cluster_id']
-
-   scrna_cl_dic = dict(zip(scrna_cl['cell_id'], scrna_cl['cluster_id']))
-   scrna_cl_metadata_dic = dict(zip(
-       scrna_cl_df['cluster_id'],
-       zip(scrna_cl_df['cluster_label'],
-           scrna_cl_df['cluster_color'], )
-   ))
-
-   qc_gene_indices = np.sum(scrna_counts > 0, axis=1) > 5
-   scrna_genes_qc = np.array(scrna_genes)[qc_gene_indices]
-
-   scrna_counts_qc = np.array(scrna_counts).T[:, qc_gene_indices]
-
-Normalisation
--------------
-
-Once the data is loaded, we will normalise it using ``run_sctransform``:
+Then we can load the data using ``scanpy``:
 
 ::
 
-   scrna_data_normalized = np.array(ssam.run_sctransform(scrna_counts_qc)[0])
+   # ``scanpy`` is needed for loading the data, install it with ``pip install scanpy``
+   import scanpy as sc
+   adata = sc.read_h5ad("sc_mouse_cortex.h5ad")
+
+   # filter out and reorder genes according to the SSAM dataset ds.genes
+   adata = adata[:, adata.var_names.isin(ds.genes)]
+   adata = adata[:, ds.genes]
 
 Cell-type gene expression signatures
 ------------------------------------
 
-Once the data is normalised, we can calculate the average gene
+Once the data is loaded, we can calculate the average gene
 expression per cell type (the ``centroids``), which can then be used for
 classifying pixels in the image
 
 ::
 
-   selected_genes_idx = [list(scrna_genes_qc).index(g) for g in ds.genes]
-   scrna_uniq_clusters = np.unique(scrna_clusters)
+   scrna_clusters = []
    scrna_centroids = []
-   for cl in scrna_uniq_clusters:
-       scrna_centroids.append(np.mean(scrna_data_normalized[:, selected_genes_idx][scrna_clusters == cl], axis=0))
+   for cl, grp in adata.obs.groupby("cell_class"):
+      scrna_clusters.append(cl)
+      scrna_centroids.append(
+         adata[grp.index].X.mean(axis=0).A1 # ``A1`` is used to convert the matrix to a numpy array
+      )
 
 Generate a *guided* cell-type map
 ---------------------------------
@@ -71,16 +59,28 @@ We can now continue to classify pixels in the tissue image using the
 cell-type gene expression signatures from the sc-RNAseq data.
 
 We map the local maxima vectors to the most similar clusters in the
-scRNA-seq data using, using a `correlation threshold of classifying
-pixels of ``0.6`` <celltype_map_thresh_g.md>`__
+scRNA-seq data.
+
+By default, the ``filter_celltypemaps`` function will remove pixels that
+do not correlate with any of the cell types above a certain threshold.
+This is done to remove spurious pixels that do not belong to any cell
+type.
+
+By default, the threshold (``min_r`` parameter) is set to ``0.6``, but
+you can adjust it if needed. In this example, we set it to ``0.3``, as
+the scRNA-seq data is generated from a different tissue and the gene
+expression signatures might not be as similar.
+
+You can specify the colors of the cell types using the ``colors``
+parameter. The colors should be a list of matplotlib colors, where the
+order corresponds to the order of the cell types in the ``scrna_centroids``.
 
 ::
 
-   analysis.map_celltypes(scrna_centroids) # map the scRNAseq cell type signatures to the tissue image
-   analysis.filter_celltypemaps(min_norm=filter_method, filter_params=filter_params, min_r=0.3, output_mask=output_mask) # post-filter cell-type map to remove spurious pixels
-
-   plt.figure(figsize=[5, 5]) # initiate the plotting area
-   ds.plot_celltypes_map(rotate=1, colors=scrna_colors, set_alpha=False) # SSAM plotting function
+   analysis.map_celltypes(scrna_centroids)
+   analysis.filter_celltypemaps(min_r=0.3, min_norm=0.05) # Adjust `min_norm` for filtering
+   plt.figure(figsize=(5, 5))
+   ds.plot_celltypes_map(colors=adata.uns['cell_class_colors'])
 
 |image0|
 

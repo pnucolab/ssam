@@ -5,6 +5,7 @@
    :maxdepth: 4
    :caption: Contents
 
+   tldr
    userguide
    ssam
 

@@ -4,16 +4,16 @@ Data Preparation
 Download VISp data
 ------------------
 
-In this tutorial we work with data of the murine primary visual cortex
-(VISp) profiled using multiplexed smFISH. Further details are available
-in the SSAM publication (Park, et. al. 2019).
+In this tutorial we work with a filtered subset of the spot data of
+the murine primary visual cortex (VISp) profiled using multiplexed smFISH.
 
-First, download the data and unpack it:
+To access the full dataset, please refer to this Zenodo record: https://zenodo.org/record/3478502
+
+First, download the data:
 
 ::
 
-   curl "https://zenodo.org/record/3478502/files/supplemental_data_ssam_2019.zip?download=1" -o zenodo.zip
-   unzip zenodo.zip
+   curl "https://s3.amazonaws.com/starfish.data.spacetx/spacetx-website/data/smFISH_Allen/s3_spot_table.csv" -o s3_spot_table.csv
 
 Load data into python
 ---------------------
@@ -33,65 +33,82 @@ required columns into a dataframe:
 
 ::
 
-   df = pd.read_csv(
-       "zenodo/multiplexed_smFISH/raw_data/smFISH_MCT_CZI_Panel_0_spot_table.csv",
-       usecols=['x', 'y', 'z', 'target'])
+   df = pd.read_csv("s3_spot_table.csv", usecols=['rotated_x', 'rotated_y', 'gene'])
+
+We are only interested in the coordinates of the spots and the gene names,
+so we filter the dataframe accordingly using the ``usecols`` argument.
+
+Now we rename the columns to match the format SSAM expects:
+
+::
+
+   df = df.rename(columns={'rotated_x': 'x', 'rotated_y': 'y'})
+
+SSAM expects the columns to be named ``x``, ``y``, ``z`` and ``gene`` (``z`` is optional).
 
 If your dataset is organized differently, you will have to reshape it
-before continuing with the next steps. ## Transform Data
+before continuing with the next steps.
 
-Because SSAM analysis is rooted in a cellular scale we transform the
-coordinates from a laboratory system into micrometers. Also we make them
-a bit tidier:
+Transform Data
+--------------
 
-::
-
-   um_per_pixel = 0.1
-
-   df.x = (df.x - df.x.min()) * um_per_pixel + 10
-   df.y = (df.y - df.y.min()) * um_per_pixel + 10
-   df.z = (df.z - df.z.min()) * um_per_pixel + 10
-
-Prepare data for SSAM
----------------------
-
-To create a ``SSAMDataset`` object we need to provide four arguments: -
-a list of gene names profiled in the experiment: ``genes`` - a list of
-lists that contains the coordinates of each gene: ``coord_list`` - the
-``width`` of the image - the ``height`` of the image
-
-The width and height are straightforward to infer from the dimensions of
-the image:
+As a next step we normalize the coordinates of the spots. We want the
+origin to be at the top left corner of the tissue, so we subtract the
+minimum x and y coordinates from all spots:
 
 ::
 
-   width = df.x.max() - df.x.min() + 10
-   height = df.y.max() - df.y.min() + 10
+   df.x -= df.x.min()
+   df.y -= df.y.min()
 
-We group the dataframe by gene and create the list of gene names:
+SSAM expects the coordinates to be in micrometers, so we need to
+multiply the coordinates by the pixel size of the image.
 
-::
-
-   grouped = df.groupby('target').agg(list)
-   genes = list(grouped.index)
-
-And finally the coordinate list:
+In this dataset, the coordinates are already in micrometers, so we don't
+need to do this. If your data is in a different unit, you will have to
+convert it into micrometers by multiplying with the conversion factor.
 
 ::
 
-   coord_list = []
-   for target, coords in grouped.iterrows():
-       coord_list.append(np.array(list(zip(*coords))))
+   # Below is not needed for this dataset, but to show how it could be done
+   conversion_factor = 1.0 # change this if your data is in a different unit
+   df.x *= um_per_pixel
+   df.y *= um_per_pixel
 
-Create the ``SSAMDataset`` object
----------------------------------
 
-With everything in place we can now instantiate the ``SSAMDataset``
-object:
+Create the ``SSAMDataset`` and ``SSAMAnalysis`` objects
+-------------------------------------------------------
+
+For the SSAM analysis we need to create a ``SSAMDataset`` and ``SSAMAnalysis`` objects.
+
+The ``SSAMDataset`` object will contain all analysis results and intermediate data,
+while the ``SSAMAnalysis`` object will perform the analysis steps.
+
+We create a new ``SSAMDataset`` object by providing a name for the
+dataset. This will initialize a new directory (as a ``Zarr`` store)
+where all the data will be stored.
 
 ::
 
-   ds = ssam.SSAMDataset(genes, coord_list, width, height)
+   # Below will create a new directory named "ssam_msmfish" in the current working directory
+   ds = ssam.SSAMDataset("ssam_msmfish")
+
+Next, we create a ``SSAMAnalysis`` object. This object will perform the
+analysis steps on the dataset.
+
+::
+
+   analysis = ssam.SSAMAnalysis(ds, verbose=True)
+
+The ``verbose=True`` argument let us see the progress of the analysis.
+
+It is also possible to specify the number of cores to use for the
+analysis steps. This is useful for speeding up the analysis on
+multi-core machines:
+
+::
+
+   analysis = ssam.SSAMAnalysis(ds, ncores=10, verbose=True) # use 10 cores
 
 Now we can start the analysis with the `kernel density
 estimation <kde.md>`__ step.

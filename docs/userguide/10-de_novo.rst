@@ -19,15 +19,15 @@ Clustering of expression vectors
 Once the local maxima have been selected and
 `filtered <max_filtering.md>`__, we can perform `clustering
 analysis <clustering.md>`__. SSAM supports `a number of clustering
-methods <clustering.md>`__. Here we use the Louvain algorithm using 22
-principle components, a resolution of 0.15.
+methods <clustering.md>`__. Here we use the Leiden algorithm using 22
+principle components, a resolution of 0.6.
 
 ::
 
    analysis.cluster_vectors(
        min_cluster_size=0,
        pca_dims=22,
-       resolution=0.15,
+       resolution=0.6,
        metric='correlation')
 
 Cluster annotation and diagnostics

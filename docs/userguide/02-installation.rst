@@ -15,7 +15,7 @@ Create your environment:
 
 ::
 
-   conda create -n ssam python=3.6
+   conda create -n ssam python=3.11 numpy=2.0.2 gxx_linux-64
 
 Remember to activate before using it:
 
@@ -23,33 +23,38 @@ Remember to activate before using it:
 
    conda activate ssam
 
-Now we use conda to install some dependencies into our ssam environment:
+
+Finally we switch to pip:
 
 ::
 
-   conda install gxx_linux-64=7.3.0 numpy=1.19.2 pip R=3.6 pyarrow=0.15.1
+   pip install git+https://github.com/HiDiHlabs/ssam.git
 
-Now we can install the R packages ``sctransform`` and ``feather``. Open
-R and type:
+(Optional) Using ``sctransform`` for normalization
+--------------------------------------------------
+
+As of SSAM v1.1.1, SSAM uses log normalization by default. Read this article for hints on choosing an appropriate normalization method for your data: https://www.nature.com/articles/s41592-023-01814-1
+
+If you want to use ``sctransform`` to normalize your vectors, you can additionally install ``R`` and the R packages ``sctransform`` and ``feather``.
+
+First, install R:
+
+::
+
+   conda install -c r r-base
+
+Then, install the required R packages. Open R and type:
 
 ::
 
    install.packages("sctransform")
    install.packages("feather")
 
-Finally we switch to pip:
-
-.. raw:: html
-
-   <!--
-   ```
-   pip install ssam
-   ```
-   -->
+And install ``pyarrow`` package for interoperation between R and Python:
 
 ::
 
-   pip install git+https://github.com/HiDiHlabs/ssam.git
+   pip install pyarrow
 
 Next we can download and prepare our `data <data.md>`__.
 

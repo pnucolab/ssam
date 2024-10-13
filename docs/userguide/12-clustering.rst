@@ -4,15 +4,15 @@ Clustering Local L-1 Maxima
 In the *de novo* mode analysis, after the local maxima have been
 identified from the tissue image, they are clustered.
 
-The default clustering algorithm is based on `Louvain community
-detection <https://doi.org/10.1088%2F1742-5468%2F2008%2F10%2FP10008>`__.
-SSAM also supports clustering using ``hdbscan`` and ``optics``.
+The default clustering algorithm is based on `Leiden community
+detection <https://www.nature.com/articles/s41598-019-41695-z>`__.
+SSAM also supports clustering using ``louvain``, ``hdbscan`` and ``optics``.
 
 It can be initiated by:
 
 ::
 
-   analysis.cluster_vectors(method="louvain", 
+   analysis.cluster_vectors(method="leiden", 
                             pca_dims=-1, 
                             min_cluster_size=2, 
                             max_correlation=1.0, 
@@ -22,7 +22,7 @@ It can be initiated by:
                             random_state=0, 
                             **kwargs)
 
-… where - ``method`` can be ``louvain``, ``hdbscan``, ``optics``. -
+… where - ``method`` can be ``leiden``, ``louvain``, ``hdbscan``, ``optics``. -
 ``pca_dims`` are the number of principal componants used for clustering.
 - ``min_cluster_size`` is the minimum cluster size. - ``resolution`` is
 the resolution for Louvain community detection. - ``prune`` is the
