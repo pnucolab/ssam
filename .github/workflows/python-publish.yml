@@ -19,8 +19,12 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install build
+        pip install cibuildwheel
     - name: Build package
-      run: python -m build
+      run: |
+        python3 -m cibuildwheel --output-dir dist
+      env:
+        CIBW_SKIP: "cp36-* cp37-* cp38-*"
+        CIBW_ENVIRONMENT: "PIP_ONLY_BINARY=numpy"
     - name: Publish package
       uses: pypa/gh-action-pypi-publish@release/v1
