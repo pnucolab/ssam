@@ -515,8 +515,11 @@ class SSAMAnalysis(object):
         vf_normalized = self.dataset.zarr_group.zeros(name='vf_normalized', shape=[nvec_total, len(self.dataset.genes)], dtype='f4')
         chunk_size = int(np.floor(max_chunk_size / (8 * len(self.dataset.genes)))) # TODO: check actual memory usage
         total_chunkcnt = int(np.ceil(nvec_total / chunk_size))
-        for i in range(total_chunkcnt):
-            self._m("Processing chunk %d (of %d)..."%(i+1, total_chunkcnt))
+        if self.verbose:
+            chunks = tqdm(range(total_chunkcnt))
+        else:
+            chunks = range(total_chunkcnt)
+        for i in chunks:
             vecs = flat_vf[i*chunk_size:(i+1)*chunk_size].compute()
             nonzero_mask = np.sum(vecs, axis=1) > 0
             vecs_nonzero = vecs[nonzero_mask]
@@ -572,7 +575,7 @@ class SSAMAnalysis(object):
         if 'normalized_vectors' in self.dataset.zarr_group:
             del self.dataset.zarr_group['normalized_vectors']
         
-        self._m("Normalizing vectors...")
+        self._m("Normalizing local maxima vectors...")
         norm_vec = _normalize(self.dataset.selected_vectors)
         
         self._m("Normalizing vector field...")
@@ -582,8 +585,11 @@ class SSAMAnalysis(object):
         vf_normalized = self.dataset.zarr_group.zeros(name='vf_normalized', shape=[nvec_total, len(self.dataset.genes)], dtype='f4')
         chunk_size = int(np.floor(max_chunk_size / (8 * len(self.dataset.genes)))) # TODO: check actual memory usage
         total_chunkcnt = int(np.ceil(nvec_total / chunk_size))
-        for i in range(total_chunkcnt):
-            self._m("Processing chunk %d (of %d)..."%(i+1, total_chunkcnt))
+        if self.verbose:
+            chunks = tqdm(range(total_chunkcnt))
+        else:
+            chunks = range(total_chunkcnt)
+        for i in chunks:
             vecs = flat_vf[i*chunk_size:(i+1)*chunk_size].compute()
             nonzero_mask = np.sum(vecs, axis=1) > 0
             vecs_nonzero = vecs[nonzero_mask]
@@ -615,8 +621,11 @@ class SSAMAnalysis(object):
         total_chunkcnt = int(np.ceil(vf_scaled.shape[0] / chunk_size))
 
         with np.errstate(divide='ignore', invalid='ignore'):
-            for i in range(total_chunkcnt):
-                self._m("Processing chunk %d (of %d)..."%(i+1, total_chunkcnt))
+            if self.verbose:
+                chunks = tqdm(range(total_chunkcnt))
+            else:
+                chunks = range(total_chunkcnt)
+            for i in chunks:
                 X = self.dataset.vf_normalized[i*chunk_size:(i+1)*chunk_size].compute()
                 vf_scaled[i*chunk_size:(i+1)*chunk_size] = np.nan_to_num((X - mu) / sigma)
         scaled_vec = np.nan_to_num((self.dataset.normalized_vectors - mu) / sigma)
@@ -1072,9 +1081,12 @@ class SSAMAnalysis(object):
     def _map_celltype(self, centroid, vf_scaled, exclude_gene_indices=None, chunk_size=1024**3):
         ctmap = np.zeros(self.dataset.vf_scaled.shape[0], dtype=float)
         chunk_len = int(chunk_size / len(self.dataset.genes) / 8)
-        n_chunks = int(np.ceil(self.dataset.vf_scaled.shape[0] / chunk_len))
-        for i in range(n_chunks):
-            self._m("Processing chunk (%d/%d)..."%(i, n_chunks))
+        total_chunkcnt = int(np.ceil(self.dataset.vf_scaled.shape[0] / chunk_len))
+        if self.verbose:
+            chunks = tqdm(range(total_chunkcnt), desc="Chunk", position=1)
+        else:
+            chunks = range(total_chunkcnt)
+        for i in chunks:
             vf_chunk = vf_scaled[i*chunk_len:(i+1)*chunk_len].compute()
             if exclude_gene_indices is not None:
                 vf_chunk = np.delete(vf_chunk, exclude_gene_indices, axis=1) # np.delete creates a copy, not modifying the original
@@ -1101,8 +1113,11 @@ class SSAMAnalysis(object):
                 
         max_corr = np.zeros(self.dataset.vf_norm.shape) - 1 # range from -1 to +1
         max_corr_idx = np.zeros(self.dataset.vf_norm.shape, dtype=int) - 1 # -1 for background
-        for cidx, centroid in enumerate(centroids):
-            self._m("Generating cell-type map for centroid #%d..."%cidx)
+        if self.verbose:
+            chunks = enumerate(tqdm(centroids, desc="Centroid", position=0))
+        else:
+            chunks = enumerate(centroids)
+        for cidx, centroid in chunks:        
             ctmap = self._map_celltype(centroid, self.dataset.vf_scaled, exclude_gene_indices=None, chunk_size=chunk_size)
             mask = max_corr < ctmap
             max_corr[mask] = ctmap[mask]
