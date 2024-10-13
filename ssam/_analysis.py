@@ -1,4 +1,3 @@
-import zarr
 import numcodecs
 from multiprocessing.pool import ThreadPool
 import pickle
@@ -17,10 +16,8 @@ from scipy import ndimage
 from sklearn.decomposition import PCA
 from tempfile import TemporaryDirectory
 from sklearn.neighbors import kneighbors_graph
-import louvain, leidenalg
 import igraph as ig
 from sklearn.cluster import DBSCAN, OPTICS
-import hdbscan
 from skimage import filters
 from skimage.morphology import disk
 from skimage import measure
@@ -34,7 +31,6 @@ from sklearn.ensemble import IsolationForest
 from sklearn.neighbors import LocalOutlierFactor
 
 import time
-import pyarrow
 
 from scipy.ndimage import map_coordinates
 
@@ -54,6 +50,11 @@ def run_sctransform(data, clip_range=None, verbose=True, debug_path=None, plot_m
         (1) normalized N x D matrix.
         (2) determined model parameters.
     """
+    try:
+        import pyarrow
+    except ImportError:
+        raise ImportError("Please install `pyarrow` first. e.g. pip install pyarrow")
+
     def _log(m):
         if verbose:
             print(m)
@@ -728,8 +729,13 @@ class SSAMAnalysis(object):
                 G.es["weight"] = np.ravel(weights).tolist()
 
                 if method == 'leiden':
+                    import leidenalg
                     partition = leidenalg.find_partition(G, leidenalg.RBConfigurationVertexPartition, seed=random_state, weights="weight", resolution_parameter=resolution)
                 else:
+                    try:
+                        import louvain
+                    except ImportError:
+                        raise ImportError("Please install `louvain` package to use Louvain method.")
                     partition = louvain.find_partition(G, louvain.RBConfigurationVertexPartition, seed=random_state, weights="weight", resolution_parameter=resolution)
 
                 lbls = np.array(partition.membership)
@@ -759,6 +765,10 @@ class SSAMAnalysis(object):
             if method == "dbscan":
                 cl = DBSCAN(**kwargs)
             elif method == "hdbscan":
+                try:
+                    import hdbscan
+                except ImportError:
+                    raise ImportError("Please install `hdbscan` package to use HDBSCAN method.")
                 cl = hdbscan.HDBSCAN(**kwargs)
             elif method == "optics":
                 cl = OPTICS(**kwargs)
