@@ -24,7 +24,7 @@ jobs:
       run: |
         python3 -m cibuildwheel --output-dir dist
       env:
-        CIBW_SKIP: "cp36-* cp37-* cp38-*"
+        CIBW_SKIP: "cp36-* cp37-* cp38-* cp313-* *musllinux*"
         CIBW_ENVIRONMENT: "PIP_ONLY_BINARY=numpy"
     - name: Publish package
       uses: pypa/gh-action-pypi-publish@release/v1
