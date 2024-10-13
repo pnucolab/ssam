@@ -1,4 +1,4 @@
-quick start / tldr page
+Quick start / tldr page
 =======================
 
 This tl;dr guide is for you if you already know what happens in a SSAM
@@ -88,7 +88,7 @@ Creating the *de novo* cell map
    plt.figure(figsize=(5, 5))
    ds.plot_celltypes_map()
 
-.. figure:: ../images/de_novo.png
+.. figure:: images/de_novo.png
    :alt: Visualisation of cell type map.
 
    Visualisation of cell type map.
