@@ -12,6 +12,11 @@ inline omp_int_t omp_get_thread_num() { return 0;}
 inline omp_int_t omp_get_max_threads() { return 1;}
 #endif
 
+#ifdef _WIN32
+#include <intrin.h>
+#else
+#include <cpuid.h>
+#endif
 #include <immintrin.h> // AVX intrinsics
 
 #include <Python.h>
@@ -176,6 +181,23 @@ static double __corr__(double *a, double *b, int ngene) {
     }
 
     return rtn;
+}
+
+static PyObject *check_avx512f(PyObject *self, PyObject *args) {
+    long is_supported;
+    int info[4];
+    
+    #ifdef _WIN32
+    __cpuidex(info, 7, 0);
+    #else
+    __cpuid_count(7, 0, info[0], info[1], info[2], info[3]);
+    #endif
+    
+    is_supported = (info[1] & (1 << 16)) != 0;  // Check if the 16th bit of EBX is set
+    if (is_supported)
+        return Py_True;
+    else
+        return Py_False;
 }
 
 static PyObject *calc_kde(PyObject *self, PyObject *args, PyObject *kwargs) {
@@ -678,6 +700,7 @@ static struct PyMethodDef module_methods[] = {
     {"calc_corrmap_2", (PyCFunction)calc_corrmap_2, METH_VARARGS | METH_KEYWORDS, "Creates a correlation map."},
     {"calc_kde", (PyCFunction)calc_kde, METH_VARARGS | METH_KEYWORDS, "Run kernel density estimation."},
     {"flood_fill", (PyCFunction)flood_fill, METH_VARARGS | METH_KEYWORDS, "Performs 3d flood fill based on correlation."},
+    {"check_avx512f", (PyCFunction)check_avx512f, METH_NOARGS, "Check if AVX-512F is supported."},
     {NULL, NULL, 0, NULL}
 };
 
