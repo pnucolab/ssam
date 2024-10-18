@@ -41,11 +41,10 @@ analysis.
 
 The cell by gene matrix can be accessed by ``cell_by_gene_matrix`` and the center of mass
 of the segments can be accessed by ``center_of_masses`` attributes of the ``SSAMDataset``
-object. Below we demonstrate how to generate a cell by gene matrix for the segmented celltype map
+object. Below we demonstrate a simple reanalysis of the segmented celltype map using
+Scanpy.
 
 .. code-block:: python
-
-    cell_by_gene_matrix = ds.cell_by_gene_matrix
 
     import scanpy as sc
     adata = sc.AnnData(ds.cell_by_gene_matrix)
@@ -59,8 +58,16 @@ object. Below we demonstrate how to generate a cell by gene matrix for the segme
     sc.tl.leiden(adata)
     sc.pl.umap(adata, color='leiden')
 
+|image1|
+
+.. code-block:: python
+
     plt.figure(figsize=(5, 5))
-    plt.scatter(ds.center_of_masses[:, 0], ds.center_of_masses[:, 1], c=adata.obs['leiden'], cmap='tab20')
+    plt.scatter(ds.center_of_masses[:, 0], ds.center_of_masses[:, 1], c=[int(i) for i in adata.obs['leiden']], cmap='tab20', s=5)
+
+|image2|
 
 .. |image0| image:: ../images/segmented_celltype_map.png
+.. |image1| image:: ../images/segmented_leiden.png
+.. |image2| image:: ../images/segmented_scanpy.png
 
