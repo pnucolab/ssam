@@ -1478,12 +1478,14 @@ class SSAMAnalysis(object):
 
         self.dataset.spatial_relationships = preprocessing.normalize(sparel, axis=1, norm='l1')
 
-    def run_watershed(self, mask, z=0):
+    def run_watershed(self, mask, df, z=0):
         """
         Run watershed segmentation based on the cell-type map with a mask of marker image.
         
         :param mask: Thresholded mask of marker image.
         :type mask: numpy.ndarray(float)
+        :param df: DataFrame of spot locations.
+        :type df: pandas.DataFrame
         """
         import cv2
 
