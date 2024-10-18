@@ -1544,7 +1544,7 @@ class SSAMAnalysis(object):
             nsegs_prev += np.max(markers) + 1
 
         self._m("Computing cell by gene matrix...")
-        max_x, max_y = self.dataset.watershed_segments.shape
+        max_x, max_y = watershed_segments.shape
 
         spots_with_segments = df.copy()
         spots_with_segments['x_rounded'] = spots_with_segments['x'].round().astype(int)
@@ -1558,7 +1558,7 @@ class SSAMAnalysis(object):
             (spots_with_segments['y_rounded'] < max_y)
         ]
 
-        spots_with_segments['segment'] = self.dataset.watershed_segments[
+        spots_with_segments['segment'] = watershed_segments[
             spots_with_segments['x_rounded'], 
             spots_with_segments['y_rounded']
         ]
@@ -1570,9 +1570,9 @@ class SSAMAnalysis(object):
         
         self._m("Computing center of masses...")
         df_com = pd.DataFrame({
-            'label': self.dataset.watershed_segments.ravel(),
-            'x': np.repeat(np.arange(self.dataset.watershed_segments.shape[0]), self.dataset.watershed_segments.shape[1]),
-            'y': np.tile(np.arange(self.dataset.watershed_segments.shape[1]), self.dataset.watershed_segments.shape[0])
+            'label': watershed_segments.ravel(),
+            'x': np.repeat(np.arange(watershed_segments.shape[0]), watershed_segments.shape[1]),
+            'y': np.tile(np.arange(watershed_segments.shape[1]), watershed_segments.shape[0])
         })
 
         df_com = df_com[df_com['label'] != -1]
