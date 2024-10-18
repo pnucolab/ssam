@@ -1,7 +1,7 @@
 Cell-type composition analysis in tissue domains
 ================================================
 
-After identifying `tissue domains <domain.md>`__ that exhibit specific
+After identifying :doc:`tissue domains <11-domain>`__ that exhibit specific
 cell-type composition properties, it may be desirable to report the
 cell-type composition properties of the identified domains.
 

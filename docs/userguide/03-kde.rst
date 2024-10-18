@@ -25,7 +25,7 @@ Now you can calculate a mRNA density estimate with the ``run_kde`` method.
 You can specify the dataframe (with ``x``, ``y``, and ``gene`` columns),
 width, height.
 
-An important consideration here is the `kernel bandwidth <kernel_bandwidth.md>`__.
+An important consideration here is the :doc:`kernel bandwidth <04-kernel_bandwidth>`__.
 As default, we recommend using a Gaussian kernel with a bandwidth of 2.5:
 
 ::
@@ -48,7 +48,11 @@ the mRNA density:
        min_norm=0.2, # optional, the total gene expression threshold
        min_expression=0.027, # optional, the per gene expression threshold
    )
-   
+
+Now SSAM automatically finds the optimal norm and expression thresholds
+for the local maxima search. However, you can adjust these parameters if
+needed.
+
 Visualization
 -------------
 
@@ -90,4 +94,4 @@ Alternatively, you can use the ``sctransform`` method for normalization:
    analysis.normalize_vectors_sctransform() # requires pyarrow, R and sctransform package
 
 Now we are ready to continue with mapping the cell types in
-`guided <guided.md>`__ or `de novo mode <de_novo.md>`__.
+:doc:`de novo <05-de_novo>`__ or :doc:`guided <06-guided>`__ mode.

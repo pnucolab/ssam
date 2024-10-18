@@ -10,7 +10,7 @@ cell types is usually much easier as these assays are usually profile
 established cell type markers. Cluster can be annotated easily based on
 marker gene expression.
 
-The `diagnostic plots <diagnostic.md>`__ can be used to compare existing
+The :doc:`diagnostic plots <08-diagnostic>`__ can be used to compare existing
 signatures against those identified *de novo*
 
 ::
@@ -39,7 +39,7 @@ experiments with high correlation (panel 3):
 While this is a good example of cluster that can be easily annotated,
 some clusters may prepresent noise and would need to be removed, and
 when over clustering occurs then clusters may have to be merged. The
-`diagnostic plots documentation <diagnostic.md>`__ assist the decision
+:doc:`diagnostic plots documentation <08-diagnostic>`__ assist the decision
 making process.
 
 Once each cluster is reviewed, a cell-type be assigned, or removed, or

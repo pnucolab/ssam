@@ -5,7 +5,7 @@ This tl;dr guide is for you if you already know what happens in a SSAM
 analysis or if you don’t care.
 
 For everyone else we recommend using the full
-`userguide <../userguide.md>`__.
+`userguide <userguide.rst>`__.
 
 Installation
 ------------

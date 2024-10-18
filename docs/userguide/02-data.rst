@@ -110,5 +110,4 @@ multi-core machines:
 
    analysis = ssam.SSAMAnalysis(ds, ncores=10, verbose=True) # use 10 cores
 
-Now we can start the analysis with the `kernel density
-estimation <kde.md>`__ step.
+Now we can start the analysis with the :doc:`kernel density estimation <03-kde>`__ step.

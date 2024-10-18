@@ -56,10 +56,10 @@ And install ``pyarrow`` package for interoperation between R and Python:
 
    pip install pyarrow
 
-Next we can download and prepare our `data <data.md>`__.
+Next we can download and prepare our :doc:`data <02-data>`__.
 
 SSAM’s source code
 ------------------
 
 In case you want to work with `SSAM’s source
-code <https://github.com/HiDiHlabs/ssam>`__, it is also hosted on github.
+code <https://github.com/pnucolab/ssam>`__, it is also hosted on github.
