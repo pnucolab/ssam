@@ -1480,7 +1480,7 @@ class SSAMAnalysis(object):
 
     def run_watershed(self, mask, z=0):
         """
-        Run watershed segmentation based on the cell-type map with a mask of marker image (experimental).
+        Run watershed segmentation based on the cell-type map with a mask of marker image.
         
         :param mask: Thresholded mask of marker image.
         :type mask: numpy.ndarray(float)
@@ -1540,20 +1540,6 @@ class SSAMAnalysis(object):
             watershed_celltype_maps[markers > -1] = idx
             
             nsegs_prev += np.max(markers) + 1
-            
-        self.dataset.watershed_celltype_maps = watershed_celltype_maps
-        self.dataset.watershed_segments = watershed_segments
-
-        self.dataset.zarr_group['watershed_segments'] = self.dataset.watershed_segments
-        self.dataset.zarr_group['watershed_celltype_maps'] = self.dataset.watershed_celltype_maps
-
-    def compute_cell_by_gene_matrix(self, df):
-        """
-        Identify and count genes present within each cell segment based on mRNA coordinates.
-
-        :param df: DataFrame containing genes and their corresponding mRNA coordinates. Must contain columns 'x' and 'y', and an index column containing gene names.
-        :type df: pandas.DataFrame
-        """
 
         self._m("Computing cell by gene matrix...")
         max_x, max_y = self.dataset.watershed_segments.shape
@@ -1590,7 +1576,25 @@ class SSAMAnalysis(object):
         df_com = df_com[df_com['label'] != -1]
         coms = df_com.groupby('label').agg({'x': 'mean', 'y': 'mean'})[spot_counts.index].to_numpy()
 
+        cnt = 0
+        for i in spot_counts.index:
+            if i not in coms.index:
+                cnt += 1
+                watershed_segments[watershed_segments == i] = -1
+                watershed_celltype_maps[watershed_segments == i] = -1
+        
+        nsegs = 0
+        for i in np.unique(watershed_segments):
+            if i == -1:
+                continue
+            watershed_segments[watershed_segments == i] = nsegs
+            nsegs += 1
+
+        self.dataset.watershed_celltype_maps = watershed_celltype_maps
+        self.dataset.watershed_segments = watershed_segments
         self.dataset.cell_by_gene_matrix = spot_counts.to_numpy()
         self.dataset.center_of_masses = coms
+        self.dataset.zarr_group['watershed_segments'] = self.dataset.watershed_segments
+        self.dataset.zarr_group['watershed_celltype_maps'] = self.dataset.watershed_celltype_maps
         self.dataset.zarr_group['cell_by_gene_matrix'] = self.dataset.cell_by_gene_matrix
         self.dataset.zarr_group['center_of_masses'] = self.dataset.center_of_masses
