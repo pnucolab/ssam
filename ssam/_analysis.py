@@ -1576,7 +1576,7 @@ class SSAMAnalysis(object):
         })
 
         df_com = df_com[df_com['label'] != -1]
-        coms = df_com.groupby('label').agg({'x': 'mean', 'y': 'mean'})[spot_counts.index].to_numpy()
+        coms = df_com.groupby('label').agg({'x': 'mean', 'y': 'mean'}).to_numpy()[spot_counts.index]
 
         cnt = 0
         for i in spot_counts.index:
