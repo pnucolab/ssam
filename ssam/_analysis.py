@@ -1578,19 +1578,16 @@ class SSAMAnalysis(object):
         df_com = df_com[df_com['label'] != -1]
         coms = df_com.groupby('label').agg({'x': 'mean', 'y': 'mean'}).to_numpy()[spot_counts.index]
 
-        cnt = 0
-        for i in spot_counts.index:
-            if i not in coms.index:
-                cnt += 1
-                watershed_segments[watershed_segments == i] = -1
-                watershed_celltype_maps[watershed_segments == i] = -1
-        
         nsegs = 0
         for i in np.unique(watershed_segments):
             if i == -1:
                 continue
-            watershed_segments[watershed_segments == i] = nsegs
-            nsegs += 1
+            if i not in spot_counts.index:
+                watershed_segments[watershed_segments == i] = -1
+                watershed_celltype_maps[watershed_segments == i] = -1
+            else:
+                watershed_segments[watershed_segments == i] = nsegs
+                nsegs += 1
 
         self.dataset.watershed_celltype_maps = watershed_celltype_maps
         self.dataset.watershed_segments = watershed_segments
