@@ -1555,28 +1555,42 @@ class SSAMAnalysis(object):
         :type df: pandas.DataFrame
         """
 
-        n_segments = np.max(self.dataset.watershed_segments) + 1
+        self._m("Computing cell by gene matrix...")
+        max_x, max_y = self.dataset.watershed_segments.shape
 
-        cell_by_gene_matrix = np.zeros((n_segments, len(self.dataset.genes)), dtype=int)
+        spots_with_segments = df.copy()
+        spots_with_segments['x_rounded'] = spots_with_segments['x'].round().astype(int)
+        spots_with_segments['y_rounded'] = spots_with_segments['y'].round().astype(int)
 
-        x_values = np.round(df['x'].values).astype(int)
-        y_values = np.round(df['y'].values).astype(int)
+        # Filter out spots outside the image boundaries
+        spots_with_segments = spots_with_segments[
+            (spots_with_segments['x_rounded'] >= 0) & 
+            (spots_with_segments['x_rounded'] < max_x) & 
+            (spots_with_segments['y_rounded'] >= 0) & 
+            (spots_with_segments['y_rounded'] < max_y)
+        ]
 
-        good_mask = np.logical_and(np.logical_and(x_values < self.dataset.shape[0], x_values >= 0), np.logical_and(y_values < self.dataset.shape[1], y_values >= 0))
-        x_values = x_values[good_mask]
-        y_values = y_values[good_mask]
-        gene_names = df.index[good_mask]
+        spots_with_segments['segment'] = self.dataset.watershed_segments[
+            spots_with_segments['x_rounded'], 
+            spots_with_segments['y_rounded']
+        ]
 
-        print("Generating spatial mRNA count matrix...")
-        counts = np.zeros([self.dataset.shape[0], self.dataset.shape[1], len(self.dataset.genes)], dtype=int)
-        for gidx, gene in enumerate(self.dataset.genes):
-            gene_mask = gene_names == gene
-            for x, y in zip(x_values[gene_mask], y_values[gene_mask]):
-                counts[x, y, gidx] += 1
-    
-        print("Computing cell-by-gene matrix...")
-        for seg in np.arange(n_segments):
-            cell_by_gene_matrix[seg] = counts[self.dataset.watershed_segments == seg].sum(axis=0)
-            
-        self.dataset.cell_by_gene_matrix = cell_by_gene_matrix
+        spots_with_segments = spots_with_segments[spots_with_segments['segment'] != -1]
+        spot_counts = spots_with_segments.groupby(['segment', 'gene']).size().reset_index(name='count') \
+                                         .pivot(index='segment', columns='gene', values='count').fillna(0) \
+                                         .astype(int)[self.dataset.genes]
+        
+        self._m("Computing center of masses...")
+        df_com = pd.DataFrame({
+            'label': self.dataset.watershed_segments.ravel(),
+            'x': np.repeat(np.arange(self.dataset.watershed_segments.shape[0]), self.dataset.watershed_segments.shape[1]),
+            'y': np.tile(np.arange(self.dataset.watershed_segments.shape[1]), self.dataset.watershed_segments.shape[0])
+        })
+
+        df_com = df_com[df_com['label'] != -1]
+        coms = df_com.groupby('label').agg({'x': 'mean', 'y': 'mean'})[spot_counts.index].to_numpy()
+
+        self.dataset.cell_by_gene_matrix = spot_counts.to_numpy()
+        self.dataset.center_of_masses = coms
         self.dataset.zarr_group['cell_by_gene_matrix'] = self.dataset.cell_by_gene_matrix
+        self.dataset.zarr_group['center_of_masses'] = self.dataset.center_of_masses
