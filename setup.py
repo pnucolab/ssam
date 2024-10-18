@@ -13,7 +13,7 @@ with io.open("README.rst", "r", encoding="utf-8") as fh:
 
 setuptools.setup(
     name="ssam",
-    version="1.1.1",
+    version="1.1.2",
     author="Jeongbin Park",
     author_email="jeongbin.park@pusan.ac.kr",
     description="SSAM",
