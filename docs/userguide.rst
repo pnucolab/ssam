@@ -1,5 +1,5 @@
-Spatial gene expression analysis with SSAM
-------------------------------------------
+Tutorial: Spatial gene expression analysis with SSAM
+----------------------------------------------------
 
 .. toctree::
    :glob:
