@@ -6,6 +6,6 @@ experimental features.
 
 The current novel features supported by SSAM include:
 
-- `Adversarial Auto Encoder based classification <14-aaec>`__
+- `Adversarial Auto Encoder based classification <14-aaec.html>`__
 
-- `Segmenting the cell-type map <15-segment_celltype_map>`__
+- `Segmenting the cell-type map <15-segment_celltype_map.html>`__

@@ -25,7 +25,7 @@ Now you can calculate a mRNA density estimate with the ``run_kde`` method.
 You can specify the dataframe (with ``x``, ``y``, and ``gene`` columns),
 width, height.
 
-An important consideration here is the `kernel bandwidth <04-kernel_bandwidth>`__.
+An important consideration here is the `kernel bandwidth <04-kernel_bandwidth.html>`__.
 As default, we recommend using a Gaussian kernel with a bandwidth of 2.5:
 
 ::
@@ -94,4 +94,4 @@ Alternatively, you can use the ``sctransform`` method for normalization:
    analysis.normalize_vectors_sctransform() # requires pyarrow, R and sctransform package
 
 Now we are ready to continue with mapping the cell types in
-`de novo <05-de_novo>`__ or `guided <06-guided>`__ mode.
+`de novo <05-de_novo.html>`__ or `guided <06-guided.html>`__ mode.

@@ -4,14 +4,14 @@ SSAM *de novo* analysis
 The steps of the *de novo* analysis are briefly discussed below, with
 links to more detailed discussion:
 
--  `Clustering <07-clustering>`__
--  `Diagnostic plots <08-diagnostic>`__
--  :`Visualisation of cell-type signatures: tSNE, UMAP <10-visualisation>`__
+-  `Clustering <07-clustering.html>`__
+-  `Diagnostic plots <08-diagnostic.html>`__
+-  :`Visualisation of cell-type signatures: tSNE, UMAP <10-visualisation.html>`__
 
 Clustering of expression vectors
 --------------------------------
 
-SSAM supports `a number of clustering methods <07-clustering>`__.
+SSAM supports `a number of clustering methods <07-clusterin.html>`__.
 Here we use the Leiden algorithm using 22 principle components, a
 resolution of 0.6.
 
@@ -26,15 +26,15 @@ resolution of 0.6.
 Cluster annotation and diagnostics
 ----------------------------------
 
-SSAM provides `diagnostic plots <08-diagnostics>`__ which can be used to
+SSAM provides `diagnostic plots <08-diagnostics.html>`__ which can be used to
 evaluate the quality of clusters, and `facilitates the annotation of
-clusters <cluster_annotation.md>`__.
+clusters <09-cluster_annotation.html>`__.
 
 Visualisng the clusters
 -----------------------
 
 SSAM supports
-`cluster visualisation via 2D embeddings (t-SNE and UMAP) <10-visualisation>`__.
+`cluster visualisation via 2D embeddings (t-SNE and UMAP) <10-visualisation.html>`__.
 Here we give an example of the t-SNE plot:
 
 ::
@@ -104,7 +104,7 @@ a mean filter method, a constant mode, and an offset of 0.2:
 Instead of using the gene expression data obtained from clustering, you
 can also use the gene expression data from external data (e.g. scRNA-seq)
 to classify the pixels in the tissue image. This is called the
-`guided mode <06-guided>`__.
+`guided mode <06-guided.html>`__.
 
 We can now use our celltype map to infer a map of
-`tissue domains <domain.md>`__.
+`tissue domains <11-domain.html>`__.

@@ -85,9 +85,9 @@ order corresponds to the order of the cell types in the ``scrna_centroids``.
 |image0|
 
 Despite the guided mode producing passable results, we highly recommend
-using the `de novo mode for more accurate analysis <05-de_novo>`__.
+using the `de novo mode for more accurate analysis <05-de_novo.html>`__.
 
-We can now use our celltype map to infer a map of `tissue domains <11-domain>`__.
+We can now use our celltype map to infer a map of `tissue domains <11-domain.html>`__.
 
 .. |image0| image:: ../images/guided.png
 

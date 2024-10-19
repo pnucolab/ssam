@@ -56,7 +56,7 @@ And install ``pyarrow`` package for interoperation between R and Python:
 
    pip install pyarrow
 
-Next we can download and prepare our `data <02-data>`__.
+Next we can download and prepare our `data <02-data.html>`__.
 
 SSAM’s source code
 ------------------
