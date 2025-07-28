@@ -376,7 +376,8 @@ class SSAMAnalysis(object):
             assert 'x' in locations and 'y' in locations, "Format error! Please check whether the columns 'x', 'y' exist."
             locations = locations.reindex(['x', 'y'], axis=1)
         
-        genes = np.unique(locations.index)
+        groupped = locations.groupby('gene', sort=True)
+        genes = list(groupped.groups.keys())
         vf_shape = tuple(list(np.ceil(np.array([width, height, depth])/sampling_distance).astype(int)) + [len(genes)])
         
         if 'vf' in self.dataset.zarr_group and any([a != b for a, b in zip(self.dataset.zarr_group['vf'].shape, vf_shape)]):
@@ -395,22 +396,25 @@ class SSAMAnalysis(object):
             check_remove('vf_normalized')
             check_remove('vf_params')
 
-        if not 'vf' in self.dataset.zarr_group:
+        if not 'kde_computed' in self.dataset.zarr_group:
             # This is a newly created file
-            self.dataset.zarr_group.array(name='genes', data=list(genes)) # for storage purpose - not used in this method
+            self.dataset.zarr_group.array(name='genes', data=genes) # for storage purpose - not used in this method
             self.dataset.zarr_group.array(name='vf_params', data=np.array([sampling_distance, bandwidth]))
             self.dataset.zarr_group.zeros(name='kde_computed', shape=len(genes), dtype='bool') # flags, kde has computed or not
-            self.dataset.zarr_group.zeros(name='vf', shape=vf_shape, dtype='f4')
-        
+            if self.dataset.zarr_store is None:
+                self.vf_temp = np.zeros(shape=vf_shape, dtype='f4')
+            else:
+                self.dataset.zarr_group.zeros(name='vf', shape=vf_shape, dtype='f4')
+
         if not all(self.dataset.zarr_group['kde_computed']) or re_run:
             if not re_run and any(self.dataset.zarr_group['kde_computed']):
                 self._m("Resuming KDE computation...")
 
             if self.verbose:
-                groupped = (pbar := tqdm(locations.groupby('gene', sort=True)))
+                groupped_iter = (pbar := tqdm(groupped))
             else:
-                groupped = locations.groupby('gene', sort=True)
-            for gidx, (gene, loc) in enumerate(groupped):
+                groupped_iter = groupped
+            for gidx, (gene, loc) in enumerate(groupped_iter):
                 if not re_run and self.dataset.zarr_group['kde_computed'][gidx]:
                     continue
                 if self.verbose:
@@ -435,17 +439,23 @@ class SSAMAnalysis(object):
                 numcodecs.blosc.set_nthreads(self.ncores)
                 gidx_coords = [gidx] * len(coords[0])
                 if len(coords) == 0:
-                    self._m("Warning: Thee computed density is zero. Maybe something is wrong?")
+                    self._m("Warning: The computed density is zero. Maybe something is wrong?")
                 else:
-                    self.dataset.zarr_group['vf'].set_coordinate_selection(tuple(list(coords) + [gidx_coords]), data)
+                    if self.dataset.zarr_store is None:
+                        self.vf_temp[coords[0], coords[1], coords[2], gidx_coords] = data
+                    else:
+                        self.dataset.zarr_group['vf'].set_coordinate_selection(tuple(list(coords) + [gidx_coords]), data)
                 self.dataset.zarr_group['kde_computed'][gidx] = True
                 self.dataset._try_flush()
 
         self.dataset.ndim = 2 if depth == 1 else 3
         self.dataset.expression_threshold = 1 / (np.sqrt(2 * np.pi) * bandwidth) ** self.dataset.ndim
         self.dataset.norm_threshold = self.dataset.expression_threshold * 2
-        self.dataset.genes = list(genes)
-        self.dataset.vf = da.from_zarr(self.dataset.zarr_group['vf'])
+        self.dataset.genes = genes
+        if self.dataset.zarr_store is None:
+            self.dataset.vf = da.from_array(self.vf_temp)
+        else:
+            self.dataset.vf = da.from_zarr(self.dataset.zarr_group['vf'])
         self.dataset.shape = self.dataset.vf_norm.shape
         self._m("Done!")
         return

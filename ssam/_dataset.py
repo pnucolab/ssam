@@ -38,7 +38,7 @@ class SSAMDataset(object):
     :type save_dir: str
     """
         
-    def __init__(self, store=None, in_memory=False):
+    def __init__(self, store=None):
         self._vf = None
         self._vf_norm = None
         self._vf_normalized = None
@@ -55,7 +55,6 @@ class SSAMDataset(object):
         self.celltype_binned_counts = None
         self.max_probabilities = None
         self.zarr_store, self.zarr_group = self._get_zarr_group(store)
-        self.in_memory = in_memory
     
     @staticmethod
     def _get_zarr_group(store):
@@ -104,10 +103,7 @@ class SSAMDataset(object):
     
     @vf.setter
     def vf(self, vf):
-        if self.in_memory:
-            self._vf = da.array(vf.compute())
-        else:
-            self._vf = vf
+        self._vf = vf
         self._vf_norm = None
         try:
             del self.zarr_group['vf_norm']
@@ -120,10 +116,7 @@ class SSAMDataset(object):
         
     @vf_normalized.setter
     def vf_normalized(self, vf_normalized):
-        if self.in_memory:
-            self._vf_normalized = da.array(vf_normalized.compute())
-        else:
-            self._vf_normalized = vf_normalized
+        self._vf_normalized = vf_normalized
             
     @property
     def vf_norm(self):
