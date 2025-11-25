@@ -24,7 +24,7 @@ jobs:
       run: |
         python3 -m cibuildwheel --output-dir dist
       env:
-        CIBW_BUILD: "cp39-* cp310-* cp311-*"
+        CIBW_BUILD: "cp39-* cp310-* cp311-* cp312-*"
         CIBW_ENVIRONMENT: "PIP_ONLY_BINARY=numpy"
         CIBW_SKIP: "*musllinux* *i686*"
     - name: Publish package
