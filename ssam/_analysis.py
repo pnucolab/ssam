@@ -37,9 +37,12 @@ from scipy.ndimage import map_coordinates
 
 from packaging import version
 
-from .utils import check_avx512f, calc_corrmap, calc_kde
+from .utils import simd_backend, calc_corrmap, calc_kde
 
-if check_avx512f():
+# The C kernels are only worth their call overhead when a SIMD implementation
+# is available for this machine (AVX-512F on x86, SVE or NEON on aarch64);
+# otherwise fall back to numpy.
+if simd_backend() != "scalar":
     from .utils import corr, calc_ctmap
 else:
     corr = lambda a, b: np.corrcoef(a, b)[0, 1]

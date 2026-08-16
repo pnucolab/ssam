@@ -6,7 +6,9 @@ except ImportError:
     print("Please install Numpy first. e.g. pip install numpy")
     exit(1)
 
-module_utils = setuptools.extension.Extension('ssam.utils', sources=["c/utils.cpp"], extra_compile_args=["-fopenmp", "-mavx512f"], extra_link_args=["-fopenmp", "-mavx512f"], include_dirs=[np.get_include()])
+# Every SIMD kernel in c/utils.cpp (AVX-512F on x86, SVE on aarch64) carries a function-level target attribute,
+# so no arch flags are required.
+module_utils = setuptools.extension.Extension('ssam.utils', sources=["c/utils.cpp"], extra_compile_args=["-fopenmp"], extra_link_args=["-fopenmp"], include_dirs=[np.get_include()])
 
 with io.open("README.rst", "r", encoding="utf-8") as fh:
     long_description = fh.read()
