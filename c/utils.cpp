@@ -4,6 +4,12 @@
 #include <queue>
 #include <unordered_map>
 
+#if defined(__GNUC__) || defined(__clang__)
+#  define SSAM_MAYBE_UNUSED __attribute__((unused))
+#else
+#  define SSAM_MAYBE_UNUSED
+#endif
+
 #if defined(_OPENMP)
 #include <omp.h>
 #else
@@ -12,12 +18,64 @@ inline omp_int_t omp_get_thread_num() { return 0;}
 inline omp_int_t omp_get_max_threads() { return 1;}
 #endif
 
-#ifdef _WIN32
-#include <intrin.h>
-#else
-#include <cpuid.h>
+/*
+ * SIMD backend selection.
+ *
+ *   x86/x86-64 : AVX-512F, detected at runtime with CPUID.
+ *   aarch64    : NEON (always present in the base ISA) plus an optional SVE
+ *                variant that is compiled with a function-level target
+ *                attribute and selected at runtime through AT_HWCAP, so a
+ *                single binary runs on SVE and non-SVE cores alike.
+ *   otherwise  : portable scalar fallback.
+ *
+ * Two escape hatches exist for testing and for troubleshooting a build:
+ * -DSSAM_NO_SVE drops the SVE kernel, -DSSAM_NO_SIMD drops all of them and
+ * leaves only the scalar kernel.
+ */
+#if defined(SSAM_NO_SIMD)
+   /* no architecture macro defined: scalar only */
+#elif defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
+#  define SSAM_ARCH_X86 1
+#elif defined(__aarch64__) || defined(_M_ARM64)
+#  define SSAM_ARCH_AARCH64 1
 #endif
-#include <immintrin.h> // AVX intrinsics
+
+#if defined(SSAM_ARCH_X86)
+#  ifdef _WIN32
+#    include <intrin.h>
+#  else
+#    include <cpuid.h>
+#  endif
+#  include <immintrin.h> // AVX intrinsics
+#  define SSAM_HAVE_AVX512 1
+#  if defined(_MSC_VER)
+#    define SSAM_AVX512_TARGET /* MSVC exposes the intrinsics unconditionally */
+#  else
+#    define SSAM_AVX512_TARGET __attribute__((target("avx512f")))
+#  endif
+#elif defined(SSAM_ARCH_AARCH64)
+#  include <arm_neon.h>
+#  define SSAM_HAVE_NEON 1
+#  if !defined(SSAM_NO_SVE)
+#    if defined(__ARM_FEATURE_SVE)
+#      include <arm_sve.h>
+#      define SSAM_HAVE_SVE 1
+#      define SSAM_SVE_ALWAYS 1
+#      define SSAM_SVE_TARGET
+#    elif defined(__linux__) && \
+          ((defined(__clang__) && __clang_major__ >= 16) || \
+           (!defined(__clang__) && defined(__GNUC__) && __GNUC__ >= 12))
+#      include <arm_sve.h>
+#      include <sys/auxv.h>
+#      define SSAM_HAVE_SVE 1
+#      define SSAM_SVE_RUNTIME 1
+#      define SSAM_SVE_TARGET __attribute__((target("+sve")))
+#      ifndef HWCAP_SVE
+#        define HWCAP_SVE (1 << 22)
+#      endif
+#    endif
+#  endif
+#endif
 
 #include <Python.h>
 #include "numpy/npy_math.h"
@@ -105,7 +163,231 @@ void kde(std::unordered_map<pos3d, double> &arr, double *xx, double *yy, double 
     }
 }
 
-static double __corr__(double *a, double *b, int ngene) {
+/*
+ * Pearson's correlation coefficient.
+ * Used by the scalar, NEON, SVE kernels for a single-pass "shifted data" formulation.
+ */
+static inline double corr_finalize(double n, double Sa, double Sb,
+                                   double Saa, double Sbb, double Sab) {
+    const double ma = Sa / n;
+    const double mb = Sb / n;
+    const double var_a = Saa / n - ma * ma;
+    const double var_b = Sbb / n - mb * mb;
+    const double cov = Sab / n - ma * mb;
+
+    if (var_a <= 0.0 || var_b <= 0.0)
+        return 0.0;
+
+    return cov / (sqrt(var_a) * sqrt(var_b));
+}
+
+SSAM_MAYBE_UNUSED
+static double corr_scalar(const double *a, const double *b, int ngene) {
+    if (ngene < 2)
+        return 0.0;
+
+    const double sa = a[0], sb = b[0];
+    double Sa = 0, Sb = 0, Saa = 0, Sbb = 0, Sab = 0;
+
+    for (int i = 0; i < ngene; i++) {
+        const double da = a[i] - sa;
+        const double db = b[i] - sb;
+        Sa += da;
+        Sb += db;
+        Saa += da * da;
+        Sbb += db * db;
+        Sab += da * db;
+    }
+
+    return corr_finalize((double)ngene, Sa, Sb, Saa, Sbb, Sab);
+}
+
+#if defined(SSAM_HAVE_NEON)
+/*
+ * NEON kernel. A NEON vector holds 2 doubles, so the loop is unrolled 8-wide
+ * to keep enough independent accumulator chains in flight to hide the ~4 cycle
+ * FMA latency of current Arm cores. The linear sums use two chains and the
+ * three quadratic sums four each: 16 vector accumulators, which still leaves
+ * room for the eight in-flight loads in the 32 entry register file.
+ */
+static double corr_neon(const double *a, const double *b, int ngene) {
+    if (ngene < 2)
+        return 0.0;
+
+    const float64x2_t vsa = vdupq_n_f64(a[0]);
+    const float64x2_t vsb = vdupq_n_f64(b[0]);
+    const float64x2_t zero = vdupq_n_f64(0.0);
+
+    float64x2_t Sa0 = zero, Sa1 = zero;
+    float64x2_t Sb0 = zero, Sb1 = zero;
+    float64x2_t Saa0 = zero, Saa1 = zero, Saa2 = zero, Saa3 = zero;
+    float64x2_t Sbb0 = zero, Sbb1 = zero, Sbb2 = zero, Sbb3 = zero;
+    float64x2_t Sab0 = zero, Sab1 = zero, Sab2 = zero, Sab3 = zero;
+
+    int i = 0;
+    for (; i <= ngene - 8; i += 8) {
+        const float64x2_t da0 = vsubq_f64(vld1q_f64(a + i + 0), vsa);
+        const float64x2_t da1 = vsubq_f64(vld1q_f64(a + i + 2), vsa);
+        const float64x2_t da2 = vsubq_f64(vld1q_f64(a + i + 4), vsa);
+        const float64x2_t da3 = vsubq_f64(vld1q_f64(a + i + 6), vsa);
+        const float64x2_t db0 = vsubq_f64(vld1q_f64(b + i + 0), vsb);
+        const float64x2_t db1 = vsubq_f64(vld1q_f64(b + i + 2), vsb);
+        const float64x2_t db2 = vsubq_f64(vld1q_f64(b + i + 4), vsb);
+        const float64x2_t db3 = vsubq_f64(vld1q_f64(b + i + 6), vsb);
+
+        Sa0 = vaddq_f64(Sa0, vaddq_f64(da0, da1));
+        Sa1 = vaddq_f64(Sa1, vaddq_f64(da2, da3));
+        Sb0 = vaddq_f64(Sb0, vaddq_f64(db0, db1));
+        Sb1 = vaddq_f64(Sb1, vaddq_f64(db2, db3));
+
+        Saa0 = vfmaq_f64(Saa0, da0, da0);
+        Saa1 = vfmaq_f64(Saa1, da1, da1);
+        Saa2 = vfmaq_f64(Saa2, da2, da2);
+        Saa3 = vfmaq_f64(Saa3, da3, da3);
+
+        Sbb0 = vfmaq_f64(Sbb0, db0, db0);
+        Sbb1 = vfmaq_f64(Sbb1, db1, db1);
+        Sbb2 = vfmaq_f64(Sbb2, db2, db2);
+        Sbb3 = vfmaq_f64(Sbb3, db3, db3);
+
+        Sab0 = vfmaq_f64(Sab0, da0, db0);
+        Sab1 = vfmaq_f64(Sab1, da1, db1);
+        Sab2 = vfmaq_f64(Sab2, da2, db2);
+        Sab3 = vfmaq_f64(Sab3, da3, db3);
+    }
+
+    for (; i <= ngene - 2; i += 2) {
+        const float64x2_t da = vsubq_f64(vld1q_f64(a + i), vsa);
+        const float64x2_t db = vsubq_f64(vld1q_f64(b + i), vsb);
+        Sa0 = vaddq_f64(Sa0, da);
+        Sb0 = vaddq_f64(Sb0, db);
+        Saa0 = vfmaq_f64(Saa0, da, da);
+        Sbb0 = vfmaq_f64(Sbb0, db, db);
+        Sab0 = vfmaq_f64(Sab0, da, db);
+    }
+
+    double Sa = vaddvq_f64(vaddq_f64(Sa0, Sa1));
+    double Sb = vaddvq_f64(vaddq_f64(Sb0, Sb1));
+    double Saa = vaddvq_f64(vaddq_f64(vaddq_f64(Saa0, Saa1), vaddq_f64(Saa2, Saa3)));
+    double Sbb = vaddvq_f64(vaddq_f64(vaddq_f64(Sbb0, Sbb1), vaddq_f64(Sbb2, Sbb3)));
+    double Sab = vaddvq_f64(vaddq_f64(vaddq_f64(Sab0, Sab1), vaddq_f64(Sab2, Sab3)));
+
+    /* At most one element left over. */
+    for (; i < ngene; i++) {
+        const double da = a[i] - a[0];
+        const double db = b[i] - b[0];
+        Sa += da;
+        Sb += db;
+        Saa += da * da;
+        Sbb += db * db;
+        Sab += da * db;
+    }
+
+    return corr_finalize((double)ngene, Sa, Sb, Saa, Sbb, Sab);
+}
+#endif /* SSAM_HAVE_NEON */
+
+#if defined(SSAM_HAVE_SVE)
+/*
+ * SVE kernel. Vector-length agnostic: the same code runs on 128-bit
+ * implementations (Neoverse V2, Cortex-X/A7xx) and on wider ones (Neoverse V1
+ * at 256-bit, A64FX at 512-bit) without recompilation. Predication makes the
+ * tail free, so short gene vectors do not fall back to scalar code.
+ */
+SSAM_SVE_TARGET
+static double corr_sve(const double *a, const double *b, int ngene) {
+    if (ngene < 2)
+        return 0.0;
+
+    const uint64_t vl = svcntd();
+    const svfloat64_t vsa = svdup_f64(a[0]);
+    const svfloat64_t vsb = svdup_f64(b[0]);
+    const svbool_t ptrue = svptrue_b64();
+
+    const svfloat64_t zero = svdup_f64(0.0);
+    svfloat64_t Sa0 = zero, Sa1 = zero;
+    svfloat64_t Sb0 = zero, Sb1 = zero;
+    svfloat64_t Saa0 = zero, Saa1 = zero, Saa2 = zero, Saa3 = zero;
+    svfloat64_t Sbb0 = zero, Sbb1 = zero, Sbb2 = zero, Sbb3 = zero;
+    svfloat64_t Sab0 = zero, Sab1 = zero, Sab2 = zero, Sab3 = zero;
+
+    uint64_t i = 0;
+    const uint64_t n = (uint64_t)ngene;
+
+    /* Four vectors per iteration. On a 128-bit implementation this matches
+     * the NEON kernel instruction for instruction; on wider ones it covers the
+     * same number of elements in proportionally fewer iterations. */
+    if (n >= 4 * vl) {
+        for (; i <= n - 4 * vl; i += 4 * vl) {
+            const svfloat64_t da0 = svsub_f64_x(ptrue, svld1_f64(ptrue, a + i          ), vsa);
+            const svfloat64_t da1 = svsub_f64_x(ptrue, svld1_f64(ptrue, a + i +      vl), vsa);
+            const svfloat64_t da2 = svsub_f64_x(ptrue, svld1_f64(ptrue, a + i + 2 *  vl), vsa);
+            const svfloat64_t da3 = svsub_f64_x(ptrue, svld1_f64(ptrue, a + i + 3 *  vl), vsa);
+            const svfloat64_t db0 = svsub_f64_x(ptrue, svld1_f64(ptrue, b + i          ), vsb);
+            const svfloat64_t db1 = svsub_f64_x(ptrue, svld1_f64(ptrue, b + i +      vl), vsb);
+            const svfloat64_t db2 = svsub_f64_x(ptrue, svld1_f64(ptrue, b + i + 2 *  vl), vsb);
+            const svfloat64_t db3 = svsub_f64_x(ptrue, svld1_f64(ptrue, b + i + 3 *  vl), vsb);
+
+            Sa0 = svadd_f64_x(ptrue, Sa0, svadd_f64_x(ptrue, da0, da1));
+            Sa1 = svadd_f64_x(ptrue, Sa1, svadd_f64_x(ptrue, da2, da3));
+            Sb0 = svadd_f64_x(ptrue, Sb0, svadd_f64_x(ptrue, db0, db1));
+            Sb1 = svadd_f64_x(ptrue, Sb1, svadd_f64_x(ptrue, db2, db3));
+
+            Saa0 = svmla_f64_x(ptrue, Saa0, da0, da0);
+            Saa1 = svmla_f64_x(ptrue, Saa1, da1, da1);
+            Saa2 = svmla_f64_x(ptrue, Saa2, da2, da2);
+            Saa3 = svmla_f64_x(ptrue, Saa3, da3, da3);
+
+            Sbb0 = svmla_f64_x(ptrue, Sbb0, db0, db0);
+            Sbb1 = svmla_f64_x(ptrue, Sbb1, db1, db1);
+            Sbb2 = svmla_f64_x(ptrue, Sbb2, db2, db2);
+            Sbb3 = svmla_f64_x(ptrue, Sbb3, db3, db3);
+
+            Sab0 = svmla_f64_x(ptrue, Sab0, da0, db0);
+            Sab1 = svmla_f64_x(ptrue, Sab1, da1, db1);
+            Sab2 = svmla_f64_x(ptrue, Sab2, da2, db2);
+            Sab3 = svmla_f64_x(ptrue, Sab3, da3, db3);
+        }
+    }
+
+    /* Predicated remainder: no scalar epilogue. */
+    for (; i < n; i += vl) {
+        const svbool_t pg = svwhilelt_b64(i, n);
+        const svfloat64_t da = svsub_f64_z(pg, svld1_f64(pg, a + i), vsa);
+        const svfloat64_t db = svsub_f64_z(pg, svld1_f64(pg, b + i), vsb);
+
+        Sa0 = svadd_f64_m(pg, Sa0, da);
+        Sb0 = svadd_f64_m(pg, Sb0, db);
+        Saa0 = svmla_f64_m(pg, Saa0, da, da);
+        Sbb0 = svmla_f64_m(pg, Sbb0, db, db);
+        Sab0 = svmla_f64_m(pg, Sab0, da, db);
+    }
+
+    Saa0 = svadd_f64_x(ptrue, svadd_f64_x(ptrue, Saa0, Saa1), svadd_f64_x(ptrue, Saa2, Saa3));
+    Sbb0 = svadd_f64_x(ptrue, svadd_f64_x(ptrue, Sbb0, Sbb1), svadd_f64_x(ptrue, Sbb2, Sbb3));
+    Sab0 = svadd_f64_x(ptrue, svadd_f64_x(ptrue, Sab0, Sab1), svadd_f64_x(ptrue, Sab2, Sab3));
+
+    return corr_finalize((double)ngene,
+                         svaddv_f64(ptrue, svadd_f64_x(ptrue, Sa0, Sa1)),
+                         svaddv_f64(ptrue, svadd_f64_x(ptrue, Sb0, Sb1)),
+                         svaddv_f64(ptrue, Saa0),
+                         svaddv_f64(ptrue, Sbb0),
+                         svaddv_f64(ptrue, Sab0));
+}
+#endif /* SSAM_HAVE_SVE */
+
+#if defined(SSAM_SVE_RUNTIME)
+/* 0 = NEON, 1 = SVE, -1 = not probed yet. */
+static int ssam_use_sve = -1;
+
+static int ssam_probe_sve(void) {
+    return (getauxval(AT_HWCAP) & HWCAP_SVE) != 0;
+}
+#endif
+
+#if defined(SSAM_HAVE_AVX512)
+SSAM_AVX512_TARGET
+static double corr_avx512(double *a, double *b, int ngene) {
     __m512d sum_a = _mm512_setzero_pd();
     __m512d sum_b = _mm512_setzero_pd();
     __m512d sum_aa = _mm512_setzero_pd();
@@ -183,8 +465,7 @@ static double __corr__(double *a, double *b, int ngene) {
     return rtn;
 }
 
-static PyObject *check_avx512f(PyObject *self, PyObject *args) {
-    long is_supported;
+static int ssam_probe_avx512f(void) {
     int info[4];
     
     #ifdef _WIN32
@@ -192,12 +473,54 @@ static PyObject *check_avx512f(PyObject *self, PyObject *args) {
     #else
     __cpuid_count(7, 0, info[0], info[1], info[2], info[3]);
     #endif
-    
-    is_supported = (info[1] & (1 << 16)) != 0;  // Check if the 16th bit of EBX is set
-    if (is_supported)
-        return Py_True;
-    else
-        return Py_False;
+
+    return (info[1] & (1 << 16)) != 0;  // Check if the 16th bit of EBX is set
+}
+#endif /* SSAM_HAVE_AVX512 */
+
+/*
+ * Dispatch to the widest kernel this machine actually supports.
+ */
+static double __corr__(double *a, double *b, int ngene) {
+#if defined(SSAM_HAVE_AVX512)
+    static int use_avx512 = -1;
+    if (use_avx512 < 0)
+        use_avx512 = ssam_probe_avx512f();
+    if (use_avx512)
+        return corr_avx512(a, b, ngene);
+    return corr_scalar(a, b, ngene);
+#elif defined(SSAM_SVE_ALWAYS)
+    return corr_sve(a, b, ngene);
+#elif defined(SSAM_SVE_RUNTIME)
+    if (ssam_use_sve < 0)
+        ssam_use_sve = ssam_probe_sve();
+    if (ssam_use_sve)
+        return corr_sve(a, b, ngene);
+    return corr_neon(a, b, ngene);
+#elif defined(SSAM_HAVE_NEON)
+    return corr_neon(a, b, ngene);
+#else
+    return corr_scalar(a, b, ngene);
+#endif
+}
+
+/* Name of the kernel __corr__ will actually run on this machine. */
+static const char *ssam_simd_backend(void) {
+#if defined(SSAM_HAVE_AVX512)
+    return ssam_probe_avx512f() ? "avx512f" : "scalar";
+#elif defined(SSAM_SVE_ALWAYS)
+    return "sve";
+#elif defined(SSAM_SVE_RUNTIME)
+    return ssam_probe_sve() ? "sve" : "neon";
+#elif defined(SSAM_HAVE_NEON)
+    return "neon";
+#else
+    return "scalar";
+#endif
+}
+
+static PyObject *simd_backend(PyObject *self, PyObject *args) {
+    return PyUnicode_FromString(ssam_simd_backend());
 }
 
 static PyObject *calc_kde(PyObject *self, PyObject *args, PyObject *kwargs) {
@@ -700,7 +1023,7 @@ static struct PyMethodDef module_methods[] = {
     {"calc_corrmap_2", (PyCFunction)calc_corrmap_2, METH_VARARGS | METH_KEYWORDS, "Creates a correlation map."},
     {"calc_kde", (PyCFunction)calc_kde, METH_VARARGS | METH_KEYWORDS, "Run kernel density estimation."},
     {"flood_fill", (PyCFunction)flood_fill, METH_VARARGS | METH_KEYWORDS, "Performs 3d flood fill based on correlation."},
-    {"check_avx512f", (PyCFunction)check_avx512f, METH_NOARGS, "Check if AVX-512F is supported."},
+    {"simd_backend", (PyCFunction)simd_backend, METH_NOARGS, "Name of the SIMD kernel in use ('avx512f', 'sve', 'neon' or 'scalar')."},
     {NULL, NULL, 0, NULL}
 };
 
